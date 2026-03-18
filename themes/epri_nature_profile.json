@@ -1,0 +1,37 @@
+{
+  "theme_name": "epri_nature",
+  "display_name": "电科院-自然基金",
+  "color_scheme": {
+    "primary": "#0070C0",
+    "secondary": "#4C9857",
+    "accent": "#E8612D",
+    "background": "#FFFFFF",
+    "text": "#333333",
+    "text_light": "#666666"
+  },
+  "typography": {
+    "title_font": "微软雅黑",
+    "body_font": "微软雅黑",
+    "title_size_pt": 32,
+    "body_size_pt": 18
+  },
+  "available_layouts": 16,
+  "layouts": [
+    "cover",
+    "agenda",
+    "section_break",
+    "title_content",
+    "data_chart",
+    "infographic",
+    "two_column",
+    "key_insight",
+    "table",
+    "image_full",
+    "quote",
+    "timeline",
+    "summary",
+    "methodology",
+    "architecture",
+    "end"
+  ]
+}
