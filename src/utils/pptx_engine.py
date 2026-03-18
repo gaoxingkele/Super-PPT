@@ -255,17 +255,7 @@ def _add_split_image_text(builder, spec: dict, asset_path: Path,
                      Inches(0.5), Inches(1.6), Inches(12.3), Inches(5.3))
 
     # 底部 takeaway（如果有）
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide1.shapes.add_textbox(Inches(0.8), Inches(6.9), Inches(11), Inches(0.5))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        run = p.add_run()
-        run.text = f"\u25b6 {takeaway}"
-        run.font.size = Pt(14)
-        run.font.bold = True
-        run.font.color.rgb = builder._get_color("accent", "#C00000")
-        _set_font_name(run)
+    _add_takeaway(slide1, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide1.notes_slide.notes_text_frame.text = spec["notes"]
@@ -279,56 +269,13 @@ def _add_split_image_text(builder, spec: dict, asset_path: Path,
     _add_bottom_bar(slide2, builder)
 
     # 副标题
-    subtitle = spec.get("subtitle", "")
-    if subtitle:
-        txBox = slide2.shapes.add_textbox(Inches(0.5), Inches(1.3), Inches(12), Inches(0.4))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle
-        p.font.size = Pt(15)
-        p.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _add_subtitle(slide2, spec.get("subtitle", ""), builder)
 
-    # Bullets（大面积展示，双栏排列）
-    n = len(bullets)
-    if n <= 4:
-        # 单栏大字
-        txBox = slide2.shapes.add_textbox(Inches(0.8), Inches(1.9), Inches(11.5), Inches(4.5))
-        tf = txBox.text_frame
-        tf.word_wrap = True
-        for i, bullet in enumerate(bullets):
-            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-            _add_rich_text(p, f"\u2022 {bullet}", builder)
-            p.font.size = Pt(18)
-            p.space_after = Pt(14)
-            p.line_spacing = Pt(30)
-    else:
-        # 双栏排列
-        mid = (n + 1) // 2
-        for col, (col_bullets, x_start) in enumerate([
-            (bullets[:mid], Inches(0.8)),
-            (bullets[mid:], Inches(7.0)),
-        ]):
-            txBox = slide2.shapes.add_textbox(x_start, Inches(1.9), Inches(5.8), Inches(4.5))
-            tf = txBox.text_frame
-            tf.word_wrap = True
-            for i, bullet in enumerate(col_bullets):
-                p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
-                _add_rich_text(p, f"\u2022 {bullet}", builder)
-                p.font.size = Pt(16)
-                p.space_after = Pt(10)
-                p.line_spacing = Pt(26)
+    # Bullets（使用分块卡片样式，与纯文字页一致）
+    _add_text_block_bullets(slide2, bullets, builder)
 
     # Takeaway
-    if takeaway:
-        txBox = slide2.shapes.add_textbox(Inches(0.8), Inches(6.5), Inches(11), Inches(0.7))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        run = p.add_run()
-        run.text = f"\u25b6 {takeaway}"
-        run.font.size = Pt(14)
-        run.font.bold = True
-        run.font.color.rgb = builder._get_color("accent", "#C00000")
-        _set_font_name(run)
+    _add_takeaway(slide2, spec.get("takeaway", ""), builder)
 
     _add_page_number(slide2, builder, builder._slide_count + 1)
     # 注意：外层 add_slide 会再 +1，所以这里不额外加
@@ -430,6 +377,39 @@ def _add_rich_text(paragraph, text: str, builder: PPTXBuilder):
                 _set_font_name(run)
 
 
+# ============ 通用辅助：takeaway / subtitle ============
+
+
+def _add_takeaway(slide, text: str, builder):
+    """统一渲染底部 takeaway 文字（支持 **bold** 标记）。"""
+    if not text:
+        return
+    txBox = slide.shapes.add_textbox(Inches(0.8), Inches(6.5), Inches(11), Inches(0.7))
+    tf = txBox.text_frame
+    tf.word_wrap = True
+    p = tf.paragraphs[0]
+    _add_rich_text(p, f"\u25b6 {text}", builder)
+    for run in p.runs:
+        run.font.size = Pt(14)
+        run.font.bold = True
+        if not run.font.color.rgb or run.font.color.rgb == builder._get_color("text", "#333333"):
+            run.font.color.rgb = builder._get_color("accent", "#C00000")
+
+
+def _add_subtitle(slide, text: str, builder, top=Inches(1.3)):
+    """统一渲染副标题（支持 **bold** 标记）。"""
+    if not text:
+        return
+    txBox = slide.shapes.add_textbox(Inches(0.5), top, Inches(12), Inches(0.4))
+    tf = txBox.text_frame
+    p = tf.paragraphs[0]
+    _add_rich_text(p, text, builder)
+    for run in p.runs:
+        run.font.size = Pt(15)
+        if not run.font.bold:
+            run.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+
+
 # ============ 纯文字页分块卡片 ============
 
 # 交替浅色背景色板
@@ -505,25 +485,40 @@ def _add_text_block_bullets(slide, bullets: list, builder):
             card.fill.solid()
             card.fill.fore_color.rgb = _BLOCK_COLORS[i % len(_BLOCK_COLORS)]
             card.line.fill.background()
-            # 顶部色条
+            # 左侧色条
             bar = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                x, y, col_width, Pt(4),
+                x, y, Inches(0.06), card_h,
             )
             bar.fill.solid()
             bar.fill.fore_color.rgb = builder._get_color("secondary", "#0060A8")
             bar.line.fill.background()
+            # 编号圆圈
+            num_circle = slide.shapes.add_shape(
+                MSO_SHAPE.OVAL,
+                x + Inches(0.2), y + Inches(0.15), Inches(0.4), Inches(0.4),
+            )
+            num_circle.fill.solid()
+            num_circle.fill.fore_color.rgb = builder._get_color("primary", "#002060")
+            num_circle.line.fill.background()
+            txc = num_circle.text_frame
+            txc.paragraphs[0].text = f"0{i+1}" if i < 9 else str(i+1)
+            txc.paragraphs[0].font.size = Pt(14)
+            txc.paragraphs[0].font.bold = True
+            txc.paragraphs[0].font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            txc.paragraphs[0].alignment = PP_ALIGN.CENTER
+            txc.word_wrap = False
             # 文字
             txBox = slide.shapes.add_textbox(
-                x + Inches(0.15), y + Inches(0.12),
-                col_width - Inches(0.3), card_h - Inches(0.2),
+                x + Inches(0.75), y + Inches(0.12),
+                col_width - Inches(0.95), card_h - Inches(0.2),
             )
             tf = txBox.text_frame
             tf.word_wrap = True
             p = tf.paragraphs[0]
             _add_rich_text(p, str(bullet), builder)
-            p.font.size = Pt(15)
-            p.line_spacing = Pt(22)
+            p.font.size = Pt(16)
+            p.line_spacing = Pt(26)
 
 
 # ============ 布局处理器 ============
@@ -592,15 +587,7 @@ def _add_agenda(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
     _add_bottom_bar(slide, builder)
 
     # 副标题
-    subtitle = spec.get("subtitle", "")
-    if subtitle:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(1.3), Inches(12), Inches(0.5))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle
-        p.font.size = Pt(16)
-        p.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
-        p.font.italic = True
+    _add_subtitle(slide, spec.get("subtitle", ""), builder)
 
     items = spec.get("bullets", spec.get("items", []))
     n = len(items)
@@ -647,10 +634,10 @@ def _add_agenda(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
         txBox = slide.shapes.add_textbox(Inches(2.3), y + Inches(0.05), Inches(9), Inches(0.5))
         tf = txBox.text_frame
         p = tf.paragraphs[0]
-        p.text = str(item)
-        p.font.size = Pt(20)
-        p.font.bold = True
-        p.font.color.rgb = builder._get_color("text", "#333333")
+        _add_rich_text(p, str(item), builder)
+        for run in p.runs:
+            run.font.size = Pt(20)
+            run.font.bold = True
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -760,14 +747,7 @@ def _add_title_content(builder: PPTXBuilder, spec: dict, asset_path: Optional[Pa
     _add_bottom_bar(slide, builder)
 
     # 副标题
-    subtitle = spec.get("subtitle", "")
-    if subtitle:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(1.3), Inches(12), Inches(0.4))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle
-        p.font.size = Pt(15)
-        p.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _add_subtitle(slide, spec.get("subtitle", ""), builder)
 
     bullets = spec.get("bullets", [])
     has_image = asset_path and asset_path.is_file()
@@ -788,34 +768,44 @@ def _add_title_content(builder: PPTXBuilder, spec: dict, asset_path: Optional[Pa
         except Exception as e:
             print(f"  [WARN] title_content 原生图表渲染失败 ({spec.get('id','')}): {e}", flush=True)
 
-    if bullets and not has_image and not chart_rendered:
+    if bullets and chart_rendered:
+        # ---- 图表+文字页：图表在左，要点在右（避免重叠） ----
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            Inches(7.8), Inches(1.8), Inches(5.0), Inches(4.8),
+        )
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(0xF5, 0xF7, 0xFA)
+        card.line.fill.background()
+        txBox = slide.shapes.add_textbox(Inches(8.0), Inches(2.0), Inches(4.6), Inches(4.4))
+        tf = txBox.text_frame
+        tf.word_wrap = True
+        for i, bullet in enumerate(bullets):
+            p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
+            _add_rich_text(p, f"\u25b8 {bullet}", builder)
+            p.font.size = Pt(14)
+            p.space_after = Pt(6)
+            p.line_spacing = Pt(22)
+    elif bullets and not has_image:
         # ---- 纯文字页：分块背景卡片布局 ----
         _add_text_block_bullets(slide, bullets, builder)
     elif bullets:
-        # ---- 图文页/图表页：左文右图 ----
-        left_width = Inches(6.8)
+        # ---- 图文页：左文右图 ----
+        left_width = Inches(5.8) if has_image else Inches(6.8)
         txBox = slide.shapes.add_textbox(Inches(0.8), Inches(1.9), left_width, Inches(4.3))
         tf = txBox.text_frame
         tf.word_wrap = True
         for i, bullet in enumerate(bullets):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             _add_rich_text(p, f"\u2022 {bullet}", builder)
-            p.font.size = Pt(17)
-            p.space_after = Pt(10)
-            p.line_spacing = Pt(28)
+            p.font.size = Pt(16)
+            p.space_after = Pt(8)
+            p.line_spacing = Pt(26)
 
     if has_image:
-        _add_picture_fit(slide, str(asset_path), Inches(8), Inches(1.6), Inches(4.8), Inches(5))
+        _add_picture_fit(slide, str(asset_path), Inches(6.8), Inches(1.6), Inches(6.2), Inches(5.2))
 
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide.shapes.add_textbox(Inches(0.8), Inches(6.5), Inches(11), Inches(0.7))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = f"\u25b6 {takeaway}"
-        p.font.size = Pt(14)
-        p.font.bold = True
-        p.font.color.rgb = builder._get_color("accent", "#C00000")
+    _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -852,14 +842,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
     _add_bottom_bar(slide, builder)
 
     # 副标题
-    subtitle = spec.get("subtitle", "")
-    if subtitle:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(1.3), Inches(12), Inches(0.4))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle
-        p.font.size = Pt(14)
-        p.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _add_subtitle(slide, spec.get("subtitle", ""), builder)
 
     bullets = spec.get("bullets", [])
     has_bullets = bool(bullets)
@@ -921,15 +904,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
             p.space_after = Pt(6)
             p.line_spacing = Pt(20)
 
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(6.7), Inches(12), Inches(0.6))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = f"\u25b6 {takeaway}"
-        p.font.size = Pt(14)
-        p.font.bold = True
-        p.font.color.rgb = builder._get_color("accent", "#C00000")
+    _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -949,14 +924,7 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
     _add_bottom_bar(slide, builder)
 
     # 副标题
-    subtitle = spec.get("subtitle", "")
-    if subtitle:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(1.3), Inches(12), Inches(0.4))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = subtitle
-        p.font.size = Pt(14)
-        p.font.color.rgb = RGBColor(0x88, 0x88, 0x88)
+    _add_subtitle(slide, spec.get("subtitle", ""), builder)
 
     bullets = spec.get("bullets", [])
     has_bullets = bool(bullets)
@@ -969,22 +937,35 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
             _add_picture_fit(slide, str(asset_path), Inches(1), Inches(1.6), Inches(11), Inches(5.2))
 
     if has_bullets:
-        # 右侧要点说明（紧凑布局）
+        # 右侧要点说明（卡片式布局，消除空白感）
         n_bullets = len(bullets)
-        bullet_spacing = min(1.15, 4.5 / max(n_bullets, 1))
+        card_area_top = Inches(1.8)
+        card_area_height = Inches(4.8)
+        card_gap = Inches(0.1)
+        card_h = (card_area_height - card_gap * (n_bullets - 1)) / n_bullets
         for i, bullet in enumerate(bullets):
-            y = Inches(2.0) + i * Inches(bullet_spacing)
-            # 小色块图标
-            icon = slide.shapes.add_shape(
+            y = card_area_top + i * (card_h + card_gap)
+            # 卡片背景
+            card = slide.shapes.add_shape(
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                Inches(8.2), y, Inches(0.25), Inches(0.25),
+                Inches(8.0), y, Inches(4.8), card_h,
             )
-            icon.fill.solid()
-            icon.fill.fore_color.rgb = builder._get_color("accent", "#C00000")
-            icon.line.fill.background()
-
+            card.fill.solid()
+            card.fill.fore_color.rgb = _BLOCK_COLORS[i % len(_BLOCK_COLORS)]
+            card.line.fill.background()
+            # 左侧色条
+            bar = slide.shapes.add_shape(
+                MSO_SHAPE.RECTANGLE,
+                Inches(8.0), y, Inches(0.06), card_h,
+            )
+            bar.fill.solid()
+            bar.fill.fore_color.rgb = builder._get_color("accent", "#C00000")
+            bar.line.fill.background()
             # 文字（支持 **bold** 标记）
-            txBox = slide.shapes.add_textbox(Inches(8.6), y - Inches(0.05), Inches(4.2), Inches(bullet_spacing))
+            txBox = slide.shapes.add_textbox(
+                Inches(8.2), y + Inches(0.08),
+                Inches(4.5), card_h - Inches(0.16),
+            )
             tf = txBox.text_frame
             tf.word_wrap = True
             p = tf.paragraphs[0]
@@ -992,15 +973,7 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
             p.font.size = Pt(14)
             p.line_spacing = Pt(20)
 
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide.shapes.add_textbox(Inches(0.5), Inches(6.7), Inches(12), Inches(0.6))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = f"\u25b6 {takeaway}"
-        p.font.size = Pt(14)
-        p.font.bold = True
-        p.font.color.rgb = builder._get_color("accent", "#C00000")
+    _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -1042,8 +1015,8 @@ def _add_two_column(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
     if visual and isinstance(visual, dict) and visual.get("type") == "matplotlib":
         try:
             from src.visuals.pptx_charts import render_native_chart
-            chart_y = Inches(5.3)
-            chart_h = Inches(1.8)
+            chart_y = Inches(4.5)
+            chart_h = Inches(2.8)
             if not left.get("bullets") and not right.get("bullets"):
                 chart_y = Inches(1.8)
                 chart_h = Inches(5.0)
@@ -1053,16 +1026,25 @@ def _add_two_column(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
         except Exception as e:
             print(f"  [WARN] two_column 原生图表渲染失败 ({spec.get('id','')}): {e}", flush=True)
 
-    content_height = Inches(3.2) if (has_visual or chart_rendered) else Inches(4.8)
+    content_height = Inches(2.5) if chart_rendered else (Inches(3.2) if has_visual else Inches(4.8))
 
-    # 中间分隔线
-    divider = slide.shapes.add_shape(
-        MSO_SHAPE.RECTANGLE,
-        Inches(6.5), Inches(1.8), Pt(2), content_height,
+    # 左栏背景卡片
+    card_l = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(0.3), Inches(1.7), Inches(6.0), content_height + Inches(0.2),
     )
-    divider.fill.solid()
-    divider.fill.fore_color.rgb = RGBColor(0xDD, 0xDD, 0xDD)
-    divider.line.fill.background()
+    card_l.fill.solid()
+    card_l.fill.fore_color.rgb = RGBColor(0xF5, 0xF7, 0xFA)
+    card_l.line.fill.background()
+
+    # 右栏背景卡片
+    card_r = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        Inches(6.8), Inches(1.7), Inches(6.0), content_height + Inches(0.2),
+    )
+    card_r.fill.solid()
+    card_r.fill.fore_color.rgb = RGBColor(0xF5, 0xF7, 0xFA)
+    card_r.line.fill.background()
 
     # 左栏
     txBox_l = slide.shapes.add_textbox(Inches(0.5), Inches(1.8), Inches(5.8), content_height)
@@ -1146,33 +1128,25 @@ def _add_key_insight(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
 
     if bullets:
         # 左侧要点列表
-        text_width = Inches(6.5) if has_visual else Inches(11.5)
+        text_width = Inches(5.5) if has_visual else Inches(11.5)
         txBox = slide.shapes.add_textbox(Inches(0.8), Inches(1.8), text_width, Inches(4.5))
         tf = txBox.text_frame
         tf.word_wrap = True
         for i, bullet in enumerate(bullets):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             _add_rich_text(p, f"\u25b8 {bullet}", builder)
-            p.font.size = Pt(16)
-            p.space_after = Pt(10)
-            p.line_spacing = Pt(26)
+            p.font.size = Pt(15)
+            p.space_after = Pt(8)
+            p.line_spacing = Pt(24)
 
     # 插入信息图图片
     if asset_path and asset_path.is_file():
         if bullets:
-            _add_picture_fit(slide, str(asset_path), Inches(7.8), Inches(1.8), Inches(5), Inches(4.5))
+            _add_picture_fit(slide, str(asset_path), Inches(6.6), Inches(1.6), Inches(6.2), Inches(5.2))
         else:
             _add_picture_fit(slide, str(asset_path), Inches(1.5), Inches(1.8), Inches(10), Inches(4.8))
 
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide.shapes.add_textbox(Inches(0.8), Inches(6.5), Inches(11), Inches(0.7))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        p.text = f"\u25b6 {takeaway}"
-        p.font.size = Pt(14)
-        p.font.bold = True
-        p.font.color.rgb = builder._get_color("accent", "#C00000")
+    _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -1268,22 +1242,29 @@ def _add_table(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
         cell.text = str(h)
         cell.fill.solid()
         cell.fill.fore_color.rgb = builder._get_color("primary", "#002060")
+        cell.vertical_anchor = MSO_ANCHOR.MIDDLE
         for paragraph in cell.text_frame.paragraphs:
-            paragraph.font.size = Pt(14)
+            paragraph.font.size = Pt(15)
             paragraph.font.bold = True
             paragraph.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+            paragraph.alignment = PP_ALIGN.CENTER
+            for run in paragraph.runs:
+                _set_font_name(run, run.text)
 
     # 数据行（交替背景色）
     for i, row in enumerate(rows):
         for j, val in enumerate(row):
             if j < total_cols:
                 cell = table.cell(i + 1, j)
-                cell.text = str(val)
+                cell.vertical_anchor = MSO_ANCHOR.MIDDLE
+                tf = cell.text_frame
+                p = tf.paragraphs[0]
+                _add_rich_text(p, str(val), builder)
+                for run in p.runs:
+                    run.font.size = Pt(14)
                 if i % 2 == 0:
                     cell.fill.solid()
                     cell.fill.fore_color.rgb = RGBColor(0xF5, 0xF7, 0xFA)
-                for paragraph in cell.text_frame.paragraphs:
-                    paragraph.font.size = Pt(11)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
@@ -1313,18 +1294,22 @@ def _add_quote(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
     tf = txBox.text_frame
     tf.word_wrap = True
     p = tf.paragraphs[0]
-    p.text = quote
-    p.font.size = Pt(32)
-    p.font.italic = True
-    p.font.color.rgb = builder._get_color("primary")
+    _add_rich_text(p, quote, builder)
+    for run in p.runs:
+        run.font.size = Pt(32)
+        run.font.italic = True
+        if not run.font.bold:
+            run.font.color.rgb = builder._get_color("primary")
     p.alignment = PP_ALIGN.CENTER
 
     source = spec.get("source", "")
     if source:
         p2 = tf.add_paragraph()
-        p2.text = f"— {source}"
-        p2.font.size = Pt(16)
-        p2.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
+        _add_rich_text(p2, f"\u2014 {source}", builder)
+        for run in p2.runs:
+            run.font.size = Pt(16)
+            if not run.font.bold:
+                run.font.color.rgb = RGBColor(0x99, 0x99, 0x99)
         p2.alignment = PP_ALIGN.RIGHT
         p2.space_before = Pt(20)
 
@@ -1381,10 +1366,11 @@ def _add_summary(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
         txBox2 = slide.shapes.add_textbox(Inches(2.5), Inches(6.3), Inches(8), Inches(0.8))
         tf2 = txBox2.text_frame
         p = tf2.paragraphs[0]
-        p.text = cta
-        p.font.size = Pt(22)
-        p.font.bold = True
-        p.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
+        _add_rich_text(p, cta, builder)
+        for run in p.runs:
+            run.font.size = Pt(22)
+            run.font.bold = True
+            run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)
         p.alignment = PP_ALIGN.CENTER
 
     if spec.get("notes"):
@@ -1479,17 +1465,7 @@ def _add_methodology(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
         img_height = Inches(3.0) if bullets else Inches(5.0)
         _add_picture_fit(slide, str(asset_path), Inches(1), img_top, Inches(11), img_height)
 
-    takeaway = spec.get("takeaway", "")
-    if takeaway:
-        txBox = slide.shapes.add_textbox(Inches(0.8), Inches(6.7), Inches(11), Inches(0.6))
-        tf = txBox.text_frame
-        p = tf.paragraphs[0]
-        run = p.add_run()
-        run.text = f"\u25b6 {takeaway}"
-        run.font.size = Pt(14)
-        run.font.bold = True
-        run.font.color.rgb = builder._get_color("accent", "#C00000")
-        _set_font_name(run)
+    _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
     if spec.get("notes"):
         slide.notes_slide.notes_text_frame.text = spec["notes"]
