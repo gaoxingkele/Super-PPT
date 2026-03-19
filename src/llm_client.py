@@ -25,6 +25,8 @@ from config import (
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL,
     PERPLEXITY_API_KEY, PERPLEXITY_BASE_URL, PERPLEXITY_MODEL,
     ANTHROPIC_API_KEY, ANTHROPIC_MODEL,
+    CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL,
+    CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP,
 )
 
 HTTP_TIMEOUT = httpx.Timeout(60.0, read=600.0)
@@ -177,6 +179,31 @@ def _gemini_chat(messages: list, model: str = None, max_tokens: int = 8192, temp
     return (resp.text or "").strip()
 
 
+@_llm_retry
+def _cloubic_chat(provider: str, messages: list, model: str = None,
+                  max_tokens: int = 8192, temperature: float = 0.6) -> str:
+    """通过 Cloubic 统一路由调用任意模型（OpenAI 兼容协议）。"""
+    if not CLOUBIC_API_KEY:
+        raise ValueError("Cloubic 模式已启用但未设置 CLOUBIC_API_KEY，请在 .env.cloubic 中配置")
+    m = model or CLOUBIC_MODEL_MAP.get(provider, "deepseek-chat")
+    client = OpenAI(api_key=CLOUBIC_API_KEY, base_url=CLOUBIC_BASE_URL,
+                    http_client=httpx.Client(timeout=HTTP_TIMEOUT))
+    # Cloubic 是 OpenAI 兼容，system/user/assistant 消息直接传
+    resp = client.chat.completions.create(
+        model=m,
+        messages=messages,
+        max_tokens=max_tokens,
+        temperature=temperature,
+    )
+    return (resp.choices[0].message.content or "").strip()
+
+
+def _is_cloubic_mode() -> bool:
+    """判断当前是否为 Cloubic 路由模式（运行时动态检查）。"""
+    import config
+    return config.CLOUBIC_ENABLED and bool(config.CLOUBIC_API_KEY)
+
+
 def chat(
     messages: list,
     provider: str = None,
@@ -186,8 +213,15 @@ def chat(
 ) -> str:
     """
     统一对话接口。provider 未指定时使用环境变量 LLM_PROVIDER（默认 kimi）。
+    当 Cloubic 路由启用时，所有请求通过 Cloubic 转发。
     """
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
+
+    # Cloubic 路由模式：所有请求走 Cloubic
+    if _is_cloubic_mode():
+        return _cloubic_chat(p, messages, model, max_tokens, temperature)
+
+    # 直连模式（原有逻辑）
     if p == "claude":
         return _claude_chat(messages, model, max_tokens, temperature)
     if p == "gemini":
@@ -206,6 +240,12 @@ def chat_vision(
 ) -> str:
     """多模态对话（支持图片）。优先使用 Vision 模型。"""
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
+
+    # Cloubic 路由模式
+    if _is_cloubic_mode():
+        return _cloubic_chat(p, messages, model, max_tokens, temperature)
+
+    # 直连模式
     if p == "kimi":
         model = model or KIMI_VISION_MODEL
         return _openai_compatible_chat("kimi", messages, model, max_tokens, temperature)

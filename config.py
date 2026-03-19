@@ -4,7 +4,8 @@ import os
 from pathlib import Path
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv()  # 加载 .env
+load_dotenv(Path(__file__).resolve().parent / ".env.cloubic", override=False)  # 加载 .env.cloubic（不覆盖 .env）
 
 
 def _env(key: str, default: str = "") -> str:
@@ -116,6 +117,26 @@ DOCUMENT_EXTENSIONS = {".docx", ".pdf"}
 IMAGE_EXTENSIONS = {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"}
 TEMPLATE_EXTENSIONS = {".pptx", ".pdf"} | IMAGE_EXTENSIONS
 INPUT_EXTENSIONS = TEXT_EXTENSIONS | DOCUMENT_EXTENSIONS
+
+# ============ Cloubic 统一路由 ============
+CLOUBIC_ENABLED = _env("CLOUBIC_ENABLED", "false").lower() in ("true", "1", "yes")
+CLOUBIC_API_KEY = _env("CLOUBIC_API_KEY")
+CLOUBIC_BASE_URL = _env("CLOUBIC_BASE_URL") or "https://api.cloubic.com/v1"
+CLOUBIC_DEFAULT_PROVIDER = _env("CLOUBIC_DEFAULT_PROVIDER") or "deepseek"
+
+# Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID
+CLOUBIC_MODEL_MAP = {
+    "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-4o",
+    "claude": _env("CLOUBIC_CLAUDE_MODEL") or "claude-sonnet-4-5-20250929",
+    "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-2.0-flash",
+    "deepseek": _env("CLOUBIC_DEEPSEEK_MODEL") or "deepseek-chat",
+    "grok": _env("CLOUBIC_GROK_MODEL") or "grok-3",
+    "qwen": _env("CLOUBIC_QWEN_MODEL") or "qwen-plus",
+    "glm": _env("CLOUBIC_GLM_MODEL") or "glm-4-plus",
+    "minimax": _env("CLOUBIC_MINIMAX_MODEL") or "MiniMax-Text-01",
+    "kimi": _env("CLOUBIC_KIMI_MODEL") or "moonshot-v1-128k",
+    "perplexity": _env("CLOUBIC_PERPLEXITY_MODEL") or "sonar",
+}
 
 # ============ 自动创建目录 ============
 for d in (OUTPUT_DIR, THEMES_DIR):

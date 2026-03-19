@@ -22,7 +22,7 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config import OUTPUT_DIR, DEFAULT_THEME
+from config import OUTPUT_DIR, DEFAULT_THEME, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP
 
 _PROVIDER_CHOICES = ["kimi", "gemini", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity", "claude"]
 _THEME_CHOICES = ["business", "academic", "tech", "minimal", "consulting", "creative"]
@@ -43,11 +43,37 @@ def _apply_provider(provider: str):
         os.environ["LLM_PROVIDER"] = provider
 
 
+def _apply_cloubic_flag(args):
+    """根据 --cloubic / --direct 标志覆盖连接模式。"""
+    import config
+    if getattr(args, "cloubic", False):
+        config.CLOUBIC_ENABLED = True
+        if not config.CLOUBIC_API_KEY:
+            print("[警告] --cloubic 已启用但 CLOUBIC_API_KEY 未设置，请检查 .env.cloubic", flush=True)
+    elif getattr(args, "direct", False):
+        config.CLOUBIC_ENABLED = False
+
+
 # ============ 命令处理器 ============
+
+def _print_connection_mode():
+    """启动时打印当前 LLM 连接模式。"""
+    if CLOUBIC_ENABLED and CLOUBIC_API_KEY:
+        provider = os.environ.get("LLM_PROVIDER") or CLOUBIC_DEFAULT_PROVIDER
+        model = CLOUBIC_MODEL_MAP.get(provider, "unknown")
+        print(f"  连接模式: Cloubic 统一路由", flush=True)
+        print(f"  默认模型: {provider} -> {model}", flush=True)
+    else:
+        from config import LLM_PROVIDER as _default_provider
+        provider = os.environ.get("LLM_PROVIDER") or _default_provider or "kimi"
+        print(f"  连接模式: 直连 (Direct)", flush=True)
+        print(f"  默认 Provider: {provider}", flush=True)
+
 
 def cmd_generate(args):
     """一键全管线：输入 → Step0~Step4 → .pptx"""
     _apply_provider(getattr(args, "provider", None))
+    _apply_cloubic_flag(args)
     t_start = time.time()
     source = args.source.strip()
     base = getattr(args, "output", None)
@@ -60,6 +86,7 @@ def cmd_generate(args):
     _log_banner("Super-PPT 生成开始")
     print(f"  输入: {source}", flush=True)
     print(f"  主题: {theme}", flush=True)
+    _print_connection_mode()
 
     from src.utils.progress import load_progress, save_progress, should_skip_step
 
@@ -302,6 +329,8 @@ def main():
     pg.add_argument("--slides", default=None, help="幻灯片数量范围（如 15-25）")
     pg.add_argument("--no-ai-images", action="store_true", help="跳过 AI 图片生成（快速预览）")
     pg.add_argument("--no-resume", action="store_true", help="禁用断点续传，从头执行")
+    pg.add_argument("--cloubic", action="store_true", help="强制使用 Cloubic 统一路由（需配置 .env.cloubic）")
+    pg.add_argument("--direct", action="store_true", help="强制使用直连模式（忽略 .env.cloubic）")
     pg.add_argument("--review", action="store_true", help="启用 Step5 三角色迭代审阅")
     pg.add_argument("--review-rounds", type=int, default=5, help="审阅最大轮数（默认5）")
     pg.add_argument("--review-target", type=float, default=9.0, help="审阅目标分数（默认9.0）")
