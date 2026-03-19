@@ -21,7 +21,7 @@ from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import numpy as np
 
 import src  # noqa: F401
-from config import GEMINI_API_KEY, CHART_DPI, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL
+from config import GEMINI_API_KEY, CHART_DPI, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL, CLOUBIC_IMAGE_MODEL
 
 logger = logging.getLogger(__name__)
 
@@ -259,8 +259,9 @@ def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
     if not _cfg.CLOUBIC_ENABLED or not _cfg.CLOUBIC_API_KEY:
         return False
 
+    image_model = _cfg.CLOUBIC_IMAGE_MODEL or _GEMINI_IMAGE_MODEL
     payload = {
-        "model": _GEMINI_IMAGE_MODEL,
+        "model": image_model,
         "messages": [{"role": "user", "content": prompt}],
         "max_tokens": 4096,
     }
@@ -270,7 +271,7 @@ def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
     for attempt in range(1, _GEMINI_MAX_RETRIES + 1):
         try:
             logger.info("[%s] Cloubic 信息图生成 attempt %d/%d | model: %s",
-                        _ts(), attempt, _GEMINI_MAX_RETRIES, _GEMINI_IMAGE_MODEL)
+                        _ts(), attempt, _GEMINI_MAX_RETRIES, image_model)
             with httpx.Client(timeout=_GEMINI_TIMEOUT) as client:
                 resp = client.post(url, json=payload, headers=headers)
 

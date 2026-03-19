@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import src  # noqa: F401
-from config import GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL
+from config import GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL, CLOUBIC_IMAGE_MODEL
 
 # --------------- 日志配置 ---------------
 logger = logging.getLogger(__name__)
@@ -87,8 +87,9 @@ def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
 
     enhanced_prompt = _enhance_prompt(prompt)
     # Cloubic 支持 OpenAI chat completions 格式调用图片模型
+    image_model = _cfg.CLOUBIC_IMAGE_MODEL or GEMINI_IMAGE_MODEL
     payload = {
-        "model": GEMINI_IMAGE_MODEL,
+        "model": image_model,
         "messages": [{"role": "user", "content": enhanced_prompt}],
         "max_tokens": 4096,
     }
@@ -96,7 +97,7 @@ def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
     headers = {"Authorization": f"Bearer {_cfg.CLOUBIC_API_KEY}", "Content-Type": "application/json"}
 
     for attempt in range(1, MAX_RETRIES + 1):
-        logger.info("Cloubic 图片生成 第 %d/%d 次尝试 | model: %s", attempt, MAX_RETRIES, GEMINI_IMAGE_MODEL)
+        logger.info("Cloubic 图片生成 第 %d/%d 次尝试 | model: %s", attempt, MAX_RETRIES, image_model)
         try:
             with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
                 resp = client.post(url, json=payload, headers=headers)
