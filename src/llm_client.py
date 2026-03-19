@@ -205,6 +205,19 @@ def _is_cloubic_mode() -> bool:
     return config.CLOUBIC_ENABLED and bool(config.CLOUBIC_API_KEY)
 
 
+def _should_route_via_cloubic(provider: str) -> bool:
+    """判断该 provider 是否应走 Cloubic 路由。"""
+    if not _is_cloubic_mode():
+        return False
+    if provider == "kimi":  # kimi 始终直连
+        return False
+    import config
+    # 白名单为空 = 全部走 Cloubic
+    if not config.CLOUBIC_ROUTED_PROVIDERS:
+        return True
+    return provider in config.CLOUBIC_ROUTED_PROVIDERS
+
+
 def chat(
     messages: list,
     provider: str = None,
@@ -218,15 +231,11 @@ def chat(
     """
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
 
-    # Kimi 始终走直连，不经过 Cloubic
-    if p == "kimi":
-        return _openai_compatible_chat("kimi", messages, model, max_tokens, temperature)
-
-    # Cloubic 路由模式：其他 provider 走 Cloubic
-    if _is_cloubic_mode():
+    # 按白名单判断是否走 Cloubic（kimi 始终直连）
+    if _should_route_via_cloubic(p):
         return _cloubic_chat(p, messages, model, max_tokens, temperature)
 
-    # 直连模式（原有逻辑）
+    # 直连模式
     if p == "claude":
         return _claude_chat(messages, model, max_tokens, temperature)
     if p == "gemini":
@@ -246,14 +255,14 @@ def chat_vision(
     """多模态对话（支持图片）。优先使用 Vision 模型。"""
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
 
-    # Kimi 始终走直连
+    # 按白名单判断是否走 Cloubic
+    if _should_route_via_cloubic(p):
+        return _cloubic_chat(p, messages, model, max_tokens, temperature)
+
+    # 直连模式
     if p == "kimi":
         model = model or KIMI_VISION_MODEL
         return _openai_compatible_chat("kimi", messages, model, max_tokens, temperature)
-
-    # Cloubic 路由模式
-    if _is_cloubic_mode():
-        return _cloubic_chat(p, messages, model, max_tokens, temperature)
     if p in ("openai", "grok", "perplexity", "glm", "minimax", "qwen", "deepseek"):
         if p == "glm":
             model = model or GLM_VISION_MODEL
@@ -278,11 +287,7 @@ def chat_reasoning(
     """
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
 
-    # Kimi 无推理版，直接走普通 chat 直连
-    if p == "kimi":
-        return chat(messages, provider, model, max_tokens, temperature)
-
-    if _is_cloubic_mode():
+    if _should_route_via_cloubic(p):
         reasoning_model = model or CLOUBIC_REASONING_MODEL_MAP.get(p)
         if reasoning_model:
             return _cloubic_chat(p, messages, reasoning_model, max_tokens, temperature)

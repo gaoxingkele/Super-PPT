@@ -123,6 +123,10 @@ CLOUBIC_ENABLED = _env("CLOUBIC_ENABLED", "false").lower() in ("true", "1", "yes
 CLOUBIC_API_KEY = _env("CLOUBIC_API_KEY")
 CLOUBIC_BASE_URL = _env("CLOUBIC_BASE_URL") or "https://api.cloubic.com/v1"
 CLOUBIC_DEFAULT_PROVIDER = _env("CLOUBIC_DEFAULT_PROVIDER") or "deepseek"
+# 白名单：哪些 provider 走 Cloubic 路由（留空 = 全部）
+CLOUBIC_ROUTED_PROVIDERS = [
+    p.strip() for p in _env("CLOUBIC_ROUTED_PROVIDERS", "").split(",") if p.strip()
+]
 CLOUBIC_IMAGE_MODEL = _env("CLOUBIC_IMAGE_MODEL") or "gemini-3-pro-image-preview"
 
 # Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID（2026-03-19 API 实测）

@@ -60,12 +60,14 @@ def _print_connection_mode():
     """启动时打印当前 LLM 连接模式。"""
     import config as _cfg
     if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
-        provider = os.environ.get("LLM_PROVIDER") or _cfg.CLOUBIC_DEFAULT_PROVIDER
-        model = _cfg.CLOUBIC_MODEL_MAP.get(provider, "unknown")
-        reasoning = _cfg.CLOUBIC_REASONING_MODEL_MAP.get(provider, "N/A")
-        print(f"  连接模式: Cloubic 统一路由", flush=True)
-        print(f"  默认模型: {provider} -> {model}", flush=True)
-        print(f"  推理模型: {reasoning}", flush=True)
+        provider = os.environ.get("LLM_PROVIDER") or _cfg.LLM_PROVIDER or "kimi"
+        routed = _cfg.CLOUBIC_ROUTED_PROVIDERS
+        if routed:
+            print(f"  连接模式: 混合 (Cloubic: {','.join(routed)} | 其他直连)", flush=True)
+        else:
+            print(f"  连接模式: Cloubic 统一路由", flush=True)
+        print(f"  默认 Provider: {provider} (直连)", flush=True)
+        print(f"  图片模型: {_cfg.CLOUBIC_IMAGE_MODEL} (Cloubic)", flush=True)
     else:
         from config import LLM_PROVIDER as _default_provider
         provider = os.environ.get("LLM_PROVIDER") or _default_provider or "kimi"
