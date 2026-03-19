@@ -418,15 +418,35 @@ def _run_two_phase(analysis: dict, raw_content: str,
                 filled_slides[ds["id"]] = ds
 
     # ── 合并骨架 + 填充内容 ──
+    # 先按 ID 精确匹配，再用未匹配的填充数据按顺序补位
+    unmatched_fills = []
+    matched_ids = set()
+    for ds_id, ds in filled_slides.items():
+        if ds_id in {s["id"] for s in slides}:
+            matched_ids.add(ds_id)
+        else:
+            unmatched_fills.append(ds)
+
     merged_slides = []
+    unmatched_idx = 0
     for skel_slide in slides:
         sid = skel_slide["id"]
+        layout = skel_slide.get("layout", "")
         if sid in filled_slides:
             merged = {**skel_slide, **filled_slides[sid]}
             merged_slides.append(merged)
+        elif layout not in ("cover", "agenda", "section_break", "end", "summary") and unmatched_idx < len(unmatched_fills):
+            # ID 没匹配上但有未分配的填充数据，按顺序补位
+            merged = {**skel_slide, **unmatched_fills[unmatched_idx]}
+            merged["id"] = sid  # 保留骨架 ID
+            merged_slides.append(merged)
+            unmatched_idx += 1
+            print(f"[Step2-B] 警告: {sid} ID 未匹配，用填充数据按序补位", flush=True)
         else:
             merged_slides.append(skel_slide)
 
+    # 检测并告警空 bullets 的内容页
+    empty_content_pages = []
     for s in merged_slides:
         if "bullets" not in s:
             s["bullets"] = []
@@ -436,6 +456,13 @@ def _run_two_phase(analysis: dict, raw_content: str,
             s["takeaway"] = ""
         if "visual" not in s and s.get("visual_type") and s["visual_type"] != "null":
             s["visual"] = {"type": s["visual_type"]}
+        # 记录空 bullets 的内容页
+        layout = s.get("layout", "")
+        if layout not in ("cover", "agenda", "section_break", "end") and not s["bullets"]:
+            empty_content_pages.append(s["id"])
+
+    if empty_content_pages:
+        print(f"[Step2-B] 警告: {len(empty_content_pages)} 个内容页 bullets 为空: {empty_content_pages}", flush=True)
 
     slide_plan = {
         "meta": skeleton.get("meta", {}),
