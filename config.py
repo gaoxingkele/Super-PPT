@@ -126,9 +126,9 @@ CLOUBIC_DEFAULT_PROVIDER = _env("CLOUBIC_DEFAULT_PROVIDER") or "deepseek"
 
 # Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID（2026-03-19 API 实测）
 CLOUBIC_MODEL_MAP = {
-    "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-4o",
-    "claude": _env("CLOUBIC_CLAUDE_MODEL") or "claude-sonnet-4-5-20250929",
-    "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-2.5-pro",
+    "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-5.2-pro",
+    "claude": _env("CLOUBIC_CLAUDE_MODEL") or "claude-opus-4-6",
+    "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-3.1-pro-preview",
     "deepseek": _env("CLOUBIC_DEEPSEEK_MODEL") or "deepseek-v3.2",
     "grok": _env("CLOUBIC_GROK_MODEL") or "grok-4-1-fast-non-reasoning",
     "qwen": _env("CLOUBIC_QWEN_MODEL") or "qwen3-max",
@@ -143,7 +143,7 @@ CLOUBIC_MODEL_MAP = {
 CLOUBIC_REASONING_MODEL_MAP = {
     "openai": _env("CLOUBIC_OPENAI_REASONING_MODEL") or "o4-mini-2025-04-16",
     "claude": _env("CLOUBIC_CLAUDE_REASONING_MODEL") or "claude-sonnet-4-5-20250929-thinking",
-    "gemini": _env("CLOUBIC_GEMINI_REASONING_MODEL") or "gemini-2.5-pro",
+    "gemini": _env("CLOUBIC_GEMINI_REASONING_MODEL") or "gemini-2.5-pro",  # 自带思考能力
     "deepseek": _env("CLOUBIC_DEEPSEEK_REASONING_MODEL") or "deepSeek-R1-0528",
     "grok": _env("CLOUBIC_GROK_REASONING_MODEL") or "grok-4-1-fast-reasoning",
     "qwen": _env("CLOUBIC_QWEN_REASONING_MODEL") or "qwen3-max",
