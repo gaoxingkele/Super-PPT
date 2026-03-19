@@ -21,7 +21,7 @@ from matplotlib.patches import FancyBboxPatch, FancyArrowPatch
 import numpy as np
 
 import src  # noqa: F401
-from config import GEMINI_API_KEY, CHART_DPI
+from config import GEMINI_API_KEY, CHART_DPI, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +43,10 @@ for _fn in _zh_fonts:
 # ---------------------------------------------------------------------------
 # Gemini API 配置
 # ---------------------------------------------------------------------------
+_GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
 _GEMINI_URL = (
     "https://generativelanguage.googleapis.com/v1beta/"
-    "models/gemini-3-pro-image-preview:generateContent"
+    f"models/{_GEMINI_IMAGE_MODEL}:generateContent"
 )
 _GEMINI_TIMEOUT = 120  # seconds
 _GEMINI_MAX_RETRIES = 2
@@ -252,6 +253,56 @@ def _build_gemini_prompt(visual: dict, color_scheme: dict) -> str:
     return "\n".join(parts)
 
 
+def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
+    """通过 Cloubic OpenAI 兼容接口生成信息图。"""
+    import config as _cfg
+    if not _cfg.CLOUBIC_ENABLED or not _cfg.CLOUBIC_API_KEY:
+        return False
+
+    payload = {
+        "model": _GEMINI_IMAGE_MODEL,
+        "messages": [{"role": "user", "content": prompt}],
+        "max_tokens": 4096,
+    }
+    url = f"{_cfg.CLOUBIC_BASE_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {_cfg.CLOUBIC_API_KEY}", "Content-Type": "application/json"}
+
+    for attempt in range(1, _GEMINI_MAX_RETRIES + 1):
+        try:
+            logger.info("[%s] Cloubic 信息图生成 attempt %d/%d | model: %s",
+                        _ts(), attempt, _GEMINI_MAX_RETRIES, _GEMINI_IMAGE_MODEL)
+            with httpx.Client(timeout=_GEMINI_TIMEOUT) as client:
+                resp = client.post(url, json=payload, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning("[%s] Cloubic API 返回 HTTP %d: %s", _ts(), resp.status_code, resp.text[:300])
+                continue
+
+            data = resp.json()
+            for choice in data.get("choices", []):
+                content = choice.get("message", {}).get("content", "")
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "image_url":
+                            img_url = part.get("image_url", {}).get("url", "")
+                            if img_url.startswith("data:image"):
+                                b64_data = img_url.split(",", 1)[1] if "," in img_url else img_url
+                                img_bytes = base64.b64decode(b64_data)
+                                output_path.parent.mkdir(parents=True, exist_ok=True)
+                                output_path.write_bytes(img_bytes)
+                                logger.info("[%s] Cloubic 信息图已保存: %s (%d bytes)", _ts(), output_path, len(img_bytes))
+                                return True
+
+            logger.warning("[%s] Cloubic 响应中未找到图片数据 (attempt %d)", _ts(), attempt)
+
+        except httpx.TimeoutException:
+            logger.warning("[%s] Cloubic API 超时 (attempt %d)", _ts(), attempt)
+        except Exception as exc:
+            logger.warning("[%s] Cloubic API 异常 (attempt %d): %s", _ts(), attempt, exc)
+
+    return False
+
+
 def _try_gemini_generation(prompt: str, output_path: Path) -> bool:
     """
     调用 Gemini 图片生成 API，成功时将 PNG 写入 output_path 并返回 True。
@@ -322,12 +373,16 @@ def render_infographic(visual: dict, color_scheme: dict, output_path: Path):
     """生成信息图并保存为 PNG。优先 Gemini API，失败回退 matplotlib。"""
     output_path = Path(output_path)
 
-    # 1) 尝试 Gemini
+    # 1) 尝试 Cloubic 路由
     prompt = _build_gemini_prompt(visual, color_scheme)
+    if _try_cloubic_image_generation(prompt, output_path):
+        return
+
+    # 2) 尝试 Gemini 直连
     if _try_gemini_generation(prompt, output_path):
         return
 
-    # 2) 回退到 matplotlib
+    # 3) 回退到 matplotlib
     logger.info("[%s] 使用 matplotlib 回退渲染信息图", _ts())
     infographic_type = visual.get("infographic_type", "process_flow")
     data = visual.get("data", {})

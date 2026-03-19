@@ -16,7 +16,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import src  # noqa: F401
-from config import GEMINI_API_KEY
+from config import GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL
 
 # --------------- 日志配置 ---------------
 logger = logging.getLogger(__name__)
@@ -30,7 +30,7 @@ if not logger.handlers:
     logger.setLevel(logging.INFO)
 
 # --------------- 常量 ---------------
-GEMINI_IMAGE_MODEL = "gemini-3-pro-image-preview"
+GEMINI_IMAGE_MODEL = "gemini-3.1-flash-image-preview"
 GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_IMAGE_MODEL}:generateContent"
@@ -76,6 +76,70 @@ def _enhance_prompt(prompt: str) -> str:
         )
 
     return f"{prompt}. {suffix}"
+
+
+# --------------- Cloubic OpenAI 兼容图片生成 ---------------
+def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
+    """通过 Cloubic OpenAI 兼容接口调用 Gemini 图片生成。"""
+    import config as _cfg
+    if not _cfg.CLOUBIC_ENABLED or not _cfg.CLOUBIC_API_KEY:
+        return False
+
+    enhanced_prompt = _enhance_prompt(prompt)
+    # Cloubic 支持 OpenAI chat completions 格式调用图片模型
+    payload = {
+        "model": GEMINI_IMAGE_MODEL,
+        "messages": [{"role": "user", "content": enhanced_prompt}],
+        "max_tokens": 4096,
+    }
+    url = f"{_cfg.CLOUBIC_BASE_URL}/chat/completions"
+    headers = {"Authorization": f"Bearer {_cfg.CLOUBIC_API_KEY}", "Content-Type": "application/json"}
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info("Cloubic 图片生成 第 %d/%d 次尝试 | model: %s", attempt, MAX_RETRIES, GEMINI_IMAGE_MODEL)
+        try:
+            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+                resp = client.post(url, json=payload, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning("Cloubic API 返回 HTTP %d: %s", resp.status_code, resp.text[:300])
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+                continue
+
+            data = resp.json()
+            # 从 choices 中提取内容，可能包含 base64 图片
+            choices = data.get("choices", [])
+            for choice in choices:
+                msg = choice.get("message", {})
+                content = msg.get("content", "")
+                # 检查是否有 inline base64 图片
+                if isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "image_url":
+                            img_url = part.get("image_url", {}).get("url", "")
+                            if img_url.startswith("data:image"):
+                                b64_data = img_url.split(",", 1)[1] if "," in img_url else img_url
+                                image_bytes = base64.b64decode(b64_data)
+                                output_path.parent.mkdir(parents=True, exist_ok=True)
+                                output_path.write_bytes(image_bytes)
+                                logger.info("Cloubic 图片已保存: %s (%.1f KB)", output_path, len(image_bytes) / 1024)
+                                return True
+
+            logger.warning("Cloubic 响应中未找到图片数据 (第 %d 次)", attempt)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+        except httpx.TimeoutException:
+            logger.warning("Cloubic API 请求超时 (第 %d 次)", attempt)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+        except Exception as exc:
+            logger.error("Cloubic API 调用异常 (第 %d 次): %s", attempt, exc)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+    return False
 
 
 # --------------- Gemini API 调用 ---------------
@@ -187,19 +251,31 @@ def _fallback_gradient(prompt: str, output_path: Path):
 
 # --------------- 主入口 ---------------
 def generate_image(visual: dict, output_path: Path):
-    """生成 AI 图片。优先使用 Gemini API，失败后回退 matplotlib。"""
+    """生成 AI 图片。Cloubic 模式优先走 Cloubic，否则直连 Gemini API，失败回退 matplotlib。"""
+    import config as _cfg
     prompt = visual.get("prompt", "professional presentation background")
     logger.info("开始生成图片 | prompt: %.100s | output: %s", prompt, output_path)
 
     start = time.time()
+    success = False
+    method = "matplotlib 回退"
 
-    # 尝试 Gemini API
-    success = _call_gemini(prompt, output_path)
+    # 优先尝试 Cloubic 路由
+    if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        success = _call_cloubic_image(prompt, output_path)
+        if success:
+            method = f"Cloubic ({GEMINI_IMAGE_MODEL})"
 
+    # Cloubic 失败或未启用，尝试直连 Gemini
     if not success:
-        logger.info("Gemini 生成失败，回退至 matplotlib")
+        success = _call_gemini(prompt, output_path)
+        if success:
+            method = f"Gemini 直连 ({GEMINI_IMAGE_MODEL})"
+
+    # 全部失败，回退 matplotlib
+    if not success:
+        logger.info("图片生成失败，回退至 matplotlib")
         _fallback_gradient(prompt, output_path)
 
     elapsed = time.time() - start
-    logger.info("图片生成完成 | 耗时 %.1f 秒 | 方式: %s | %s",
-                elapsed, "Gemini AI" if success else "matplotlib 回退", output_path)
+    logger.info("图片生成完成 | 耗时 %.1f 秒 | 方式: %s | %s", elapsed, method, output_path)
