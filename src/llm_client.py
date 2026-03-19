@@ -186,8 +186,9 @@ def _cloubic_chat(provider: str, messages: list, model: str = None,
     if not CLOUBIC_API_KEY:
         raise ValueError("Cloubic 模式已启用但未设置 CLOUBIC_API_KEY，请在 .env.cloubic 中配置")
     m = model or CLOUBIC_MODEL_MAP.get(provider, "deepseek-chat")
+    # Cloubic 调用不走系统代理（无代理模式）
     client = OpenAI(api_key=CLOUBIC_API_KEY, base_url=CLOUBIC_BASE_URL,
-                    http_client=httpx.Client(timeout=HTTP_TIMEOUT))
+                    http_client=httpx.Client(timeout=HTTP_TIMEOUT, proxy=None))
     # Cloubic 是 OpenAI 兼容，system/user/assistant 消息直接传
     resp = client.chat.completions.create(
         model=m,
@@ -217,7 +218,11 @@ def chat(
     """
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
 
-    # Cloubic 路由模式：所有请求走 Cloubic
+    # Kimi 始终走直连，不经过 Cloubic
+    if p == "kimi":
+        return _openai_compatible_chat("kimi", messages, model, max_tokens, temperature)
+
+    # Cloubic 路由模式：其他 provider 走 Cloubic
     if _is_cloubic_mode():
         return _cloubic_chat(p, messages, model, max_tokens, temperature)
 
@@ -241,14 +246,14 @@ def chat_vision(
     """多模态对话（支持图片）。优先使用 Vision 模型。"""
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
 
-    # Cloubic 路由模式
-    if _is_cloubic_mode():
-        return _cloubic_chat(p, messages, model, max_tokens, temperature)
-
-    # 直连模式
+    # Kimi 始终走直连
     if p == "kimi":
         model = model or KIMI_VISION_MODEL
         return _openai_compatible_chat("kimi", messages, model, max_tokens, temperature)
+
+    # Cloubic 路由模式
+    if _is_cloubic_mode():
+        return _cloubic_chat(p, messages, model, max_tokens, temperature)
     if p in ("openai", "grok", "perplexity", "glm", "minimax", "qwen", "deepseek"):
         if p == "glm":
             model = model or GLM_VISION_MODEL
@@ -272,6 +277,10 @@ def chat_reasoning(
     直连模式回退到普通 chat()。
     """
     p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
+
+    # Kimi 无推理版，直接走普通 chat 直连
+    if p == "kimi":
+        return chat(messages, provider, model, max_tokens, temperature)
 
     if _is_cloubic_mode():
         reasoning_model = model or CLOUBIC_REASONING_MODEL_MAP.get(p)

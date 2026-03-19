@@ -272,7 +272,7 @@ def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
         try:
             logger.info("[%s] Cloubic 信息图生成 attempt %d/%d | model: %s",
                         _ts(), attempt, _GEMINI_MAX_RETRIES, image_model)
-            with httpx.Client(timeout=_GEMINI_TIMEOUT) as client:
+            with httpx.Client(timeout=_GEMINI_TIMEOUT, proxy=None) as client:
                 resp = client.post(url, json=payload, headers=headers)
 
             if resp.status_code != 200:

@@ -99,7 +99,7 @@ def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info("Cloubic 图片生成 第 %d/%d 次尝试 | model: %s", attempt, MAX_RETRIES, image_model)
         try:
-            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+            with httpx.Client(timeout=REQUEST_TIMEOUT, proxy=None) as client:
                 resp = client.post(url, json=payload, headers=headers)
 
             if resp.status_code != 200:
