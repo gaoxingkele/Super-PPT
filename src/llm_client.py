@@ -84,8 +84,8 @@ def _log_retry(retry_state):
 
 _llm_retry = retry(
     retry=retry_if_exception(_is_retryable),
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=2, min=2, max=16),
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=2, min=3, max=30),
     before_sleep=_log_retry,
     reraise=True,
 )

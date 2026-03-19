@@ -20,8 +20,8 @@ from src.prompts.outline import (
 )
 
 
-# ── 每批次处理的最大页面数 ──
-DETAIL_BATCH_SIZE = 8
+# ── 每批次处理的最大页面数（降低可避免 Cloubic 502 超时） ──
+DETAIL_BATCH_SIZE = 5
 
 
 def estimate_slides(analysis: dict) -> tuple:
