@@ -242,13 +242,17 @@ def _build_gemini_prompt(visual: dict, color_scheme: dict) -> str:
     parts.append("- Sufficient contrast for readability")
     parts.append("- Harmonious colors that work together")
     parts.append("- Subtle shadows and rounded corners for modern look")
-    parts.append("- All text in Chinese (简体中文) where applicable")
+    parts.append("- CRITICAL: ALL text, labels, numbers, titles, annotations MUST be in Simplified Chinese (简体中文). Do NOT use any English text.")
+    parts.append("- Text must be large enough to read clearly (minimum 24pt equivalent for labels, 36pt for headlines)")
+    parts.append("- Maximum 6-8 key elements per infographic, do not overcrowd")
     parts.append("")
     parts.append("STRICTLY FORBIDDEN:")
+    parts.append("- No English text anywhere in the image")
     parts.append("- No watermarks, borders, or meta-text")
     parts.append("- No instructions or annotations")
     parts.append("- No blurry or low-resolution elements")
     parts.append("- No overlapping text or cramped layouts")
+    parts.append("- No tiny unreadable text")
 
     return "\n".join(parts)
 

@@ -309,6 +309,9 @@ def _set_shape_transparency(shape, alpha_val: int):
 
 def _add_title_textbox(slide, title: str, builder: PPTXBuilder):
     """在幻灯片顶部添加标题 + 底部装饰线。"""
+    # 标题长度限制：最多30个中文字符，超长截断加省略号
+    if len(title) > 30:
+        title = title[:28] + "…"
     txBox = slide.shapes.add_textbox(Inches(0.5), Inches(0.3), Inches(12), Inches(1.0))
     tf = txBox.text_frame
     tf.word_wrap = True
@@ -712,12 +715,15 @@ def _add_section_break(builder: PPTXBuilder, spec: dict, asset_path: Optional[Pa
     accent_line.fill.fore_color.rgb = builder._get_color("accent", "#C00000")
     accent_line.line.fill.background()
 
-    # 大标题
+    # 大标题（截断防溢出）
+    section_title = spec.get("title", "")
+    if len(section_title) > 25:
+        section_title = section_title[:23] + "…"
     txBox = slide.shapes.add_textbox(Inches(1.5), Inches(3.8), Inches(10), Inches(2))
     tf = txBox.text_frame
     p = tf.paragraphs[0]
     run = p.add_run()
-    run.text = spec.get("title", "")
+    run.text = section_title
     run.font.size = Pt(42)
     run.font.bold = True
     run.font.color.rgb = RGBColor(0xFF, 0xFF, 0xFF)

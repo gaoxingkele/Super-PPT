@@ -75,7 +75,9 @@ def _enhance_prompt(prompt: str) -> str:
             "sophisticated color palette, photorealistic, 8K resolution, widescreen 16:9 aspect ratio."
         )
 
-    return f"{prompt}. {suffix}"
+    # 全局要求：图中所有文字必须使用中文
+    chinese_req = "IMPORTANT: All text, labels, captions, and annotations in the image MUST be in Simplified Chinese (简体中文). Do NOT use any English text."
+    return f"{prompt}. {chinese_req} {suffix}"
 
 
 # --------------- Cloubic 响应图片提取 ---------------
