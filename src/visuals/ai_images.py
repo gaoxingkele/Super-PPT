@@ -35,8 +35,8 @@ GEMINI_API_URL = (
     "https://generativelanguage.googleapis.com/v1beta/models/"
     f"{GEMINI_IMAGE_MODEL}:generateContent"
 )
-MAX_RETRIES = 2
-REQUEST_TIMEOUT = 120  # 秒
+MAX_RETRIES = 3
+REQUEST_TIMEOUT = 180  # 秒（Cloubic 图片生成可能较慢）
 
 
 # --------------- 提示词增强 ---------------
@@ -78,6 +78,47 @@ def _enhance_prompt(prompt: str) -> str:
     return f"{prompt}. {suffix}"
 
 
+# --------------- Cloubic 响应图片提取 ---------------
+import re as _re
+
+def _extract_image_from_cloubic_response(data: dict) -> bytes:
+    """从 Cloubic chat completions 响应中提取 base64 图片。
+    支持多种返回格式：
+    1. 字符串含 markdown: ![image](data:image/png;base64,...)
+    2. 字符串含裸 data URI: data:image/png;base64,...
+    3. list 结构含 image_url 类型
+    """
+    for choice in data.get("choices", []):
+        content = choice.get("message", {}).get("content", "")
+
+        # 格式1/2: 字符串中包含 base64 图片
+        if isinstance(content, str) and "base64," in content:
+            match = _re.search(r"data:image/[a-z]+;base64,([A-Za-z0-9+/=\s]+)", content)
+            if match:
+                b64_data = match.group(1).replace("\n", "").replace(" ", "")
+                try:
+                    return base64.b64decode(b64_data)
+                except Exception:
+                    pass
+
+        # 格式3: list 结构
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    img_url = ""
+                    if part.get("type") == "image_url":
+                        img_url = part.get("image_url", {}).get("url", "")
+                    elif part.get("type") == "image":
+                        img_url = part.get("url", "") or part.get("data", "")
+                    if img_url and "base64," in img_url:
+                        b64_data = img_url.split(",", 1)[1]
+                        try:
+                            return base64.b64decode(b64_data)
+                        except Exception:
+                            pass
+    return b""
+
+
 # --------------- Cloubic OpenAI 兼容图片生成 ---------------
 def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
     """通过 Cloubic OpenAI 兼容接口调用 Gemini 图片生成。"""
@@ -109,23 +150,13 @@ def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
                 continue
 
             data = resp.json()
-            # 从 choices 中提取内容，可能包含 base64 图片
-            choices = data.get("choices", [])
-            for choice in choices:
-                msg = choice.get("message", {})
-                content = msg.get("content", "")
-                # 检查是否有 inline base64 图片
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "image_url":
-                            img_url = part.get("image_url", {}).get("url", "")
-                            if img_url.startswith("data:image"):
-                                b64_data = img_url.split(",", 1)[1] if "," in img_url else img_url
-                                image_bytes = base64.b64decode(b64_data)
-                                output_path.parent.mkdir(parents=True, exist_ok=True)
-                                output_path.write_bytes(image_bytes)
-                                logger.info("Cloubic 图片已保存: %s (%.1f KB)", output_path, len(image_bytes) / 1024)
-                                return True
+            # 从 choices 中提取 base64 图片
+            img_bytes = _extract_image_from_cloubic_response(data)
+            if img_bytes:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(img_bytes)
+                logger.info("Cloubic 图片已保存: %s (%.1f KB)", output_path, len(img_bytes) / 1024)
+                return True
 
             logger.warning("Cloubic 响应中未找到图片数据 (第 %d 次)", attempt)
             if attempt < MAX_RETRIES:

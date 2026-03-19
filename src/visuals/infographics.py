@@ -253,6 +253,38 @@ def _build_gemini_prompt(visual: dict, color_scheme: dict) -> str:
     return "\n".join(parts)
 
 
+import re as _re
+
+
+def _extract_image_from_cloubic(data: dict) -> bytes:
+    """从 Cloubic 响应中提取 base64 图片（支持 markdown/data URI/list 格式）。"""
+    for choice in data.get("choices", []):
+        content = choice.get("message", {}).get("content", "")
+        if isinstance(content, str) and "base64," in content:
+            match = _re.search(r"data:image/[a-z]+;base64,([A-Za-z0-9+/=\s]+)", content)
+            if match:
+                b64_data = match.group(1).replace("\n", "").replace(" ", "")
+                try:
+                    return base64.b64decode(b64_data)
+                except Exception:
+                    pass
+        if isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict):
+                    img_url = ""
+                    if part.get("type") == "image_url":
+                        img_url = part.get("image_url", {}).get("url", "")
+                    elif part.get("type") == "image":
+                        img_url = part.get("url", "") or part.get("data", "")
+                    if img_url and "base64," in img_url:
+                        b64_data = img_url.split(",", 1)[1]
+                        try:
+                            return base64.b64decode(b64_data)
+                        except Exception:
+                            pass
+    return b""
+
+
 def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
     """通过 Cloubic OpenAI 兼容接口生成信息图。"""
     import config as _cfg
@@ -280,19 +312,12 @@ def _try_cloubic_image_generation(prompt: str, output_path: Path) -> bool:
                 continue
 
             data = resp.json()
-            for choice in data.get("choices", []):
-                content = choice.get("message", {}).get("content", "")
-                if isinstance(content, list):
-                    for part in content:
-                        if isinstance(part, dict) and part.get("type") == "image_url":
-                            img_url = part.get("image_url", {}).get("url", "")
-                            if img_url.startswith("data:image"):
-                                b64_data = img_url.split(",", 1)[1] if "," in img_url else img_url
-                                img_bytes = base64.b64decode(b64_data)
-                                output_path.parent.mkdir(parents=True, exist_ok=True)
-                                output_path.write_bytes(img_bytes)
-                                logger.info("[%s] Cloubic 信息图已保存: %s (%d bytes)", _ts(), output_path, len(img_bytes))
-                                return True
+            img_bytes = _extract_image_from_cloubic(data)
+            if img_bytes:
+                output_path.parent.mkdir(parents=True, exist_ok=True)
+                output_path.write_bytes(img_bytes)
+                logger.info("[%s] Cloubic 信息图已保存: %s (%d bytes)", _ts(), output_path, len(img_bytes))
+                return True
 
             logger.warning("[%s] Cloubic 响应中未找到图片数据 (attempt %d)", _ts(), attempt)
 
