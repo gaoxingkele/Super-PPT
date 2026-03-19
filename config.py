@@ -126,7 +126,7 @@ CLOUBIC_DEFAULT_PROVIDER = _env("CLOUBIC_DEFAULT_PROVIDER") or "deepseek"
 
 # Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID（2026-03-19 API 实测）
 CLOUBIC_MODEL_MAP = {
-    "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-5.2-pro",
+    "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-5.4",
     "claude": _env("CLOUBIC_CLAUDE_MODEL") or "claude-opus-4-6",
     "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-3.1-pro-preview",
     "deepseek": _env("CLOUBIC_DEEPSEEK_MODEL") or "deepseek-v3.2",
