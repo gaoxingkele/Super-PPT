@@ -124,18 +124,31 @@ CLOUBIC_API_KEY = _env("CLOUBIC_API_KEY")
 CLOUBIC_BASE_URL = _env("CLOUBIC_BASE_URL") or "https://api.cloubic.com/v1"
 CLOUBIC_DEFAULT_PROVIDER = _env("CLOUBIC_DEFAULT_PROVIDER") or "deepseek"
 
-# Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID
+# Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID（2026-03-19 API 实测）
 CLOUBIC_MODEL_MAP = {
     "openai": _env("CLOUBIC_OPENAI_MODEL") or "gpt-4o",
     "claude": _env("CLOUBIC_CLAUDE_MODEL") or "claude-sonnet-4-5-20250929",
-    "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-2.0-flash",
-    "deepseek": _env("CLOUBIC_DEEPSEEK_MODEL") or "deepseek-chat",
-    "grok": _env("CLOUBIC_GROK_MODEL") or "grok-3",
-    "qwen": _env("CLOUBIC_QWEN_MODEL") or "qwen-plus",
-    "glm": _env("CLOUBIC_GLM_MODEL") or "glm-4-plus",
-    "minimax": _env("CLOUBIC_MINIMAX_MODEL") or "MiniMax-Text-01",
-    "kimi": _env("CLOUBIC_KIMI_MODEL") or "moonshot-v1-128k",
-    "perplexity": _env("CLOUBIC_PERPLEXITY_MODEL") or "sonar",
+    "gemini": _env("CLOUBIC_GEMINI_MODEL") or "gemini-2.5-pro",
+    "deepseek": _env("CLOUBIC_DEEPSEEK_MODEL") or "deepseek-v3.2",
+    "grok": _env("CLOUBIC_GROK_MODEL") or "grok-4-1-fast-non-reasoning",
+    "qwen": _env("CLOUBIC_QWEN_MODEL") or "qwen3-max",
+    "doubao": _env("CLOUBIC_DOUBAO_MODEL") or "doubao-seed-1-6-flash-250828",
+    "minimax": _env("CLOUBIC_MINIMAX_MODEL") or "MiniMax-Hailuo-2.3",
+    "kimi": _env("CLOUBIC_KIMI_MODEL") or "deepseek-v3.2",
+    "glm": _env("CLOUBIC_GLM_MODEL") or "deepseek-v3.2",
+    "perplexity": _env("CLOUBIC_PERPLEXITY_MODEL") or "deepseek-v3.2",
+}
+
+# Cloubic 推理模型映射：provider -> 推理/思考版模型 ID
+CLOUBIC_REASONING_MODEL_MAP = {
+    "openai": _env("CLOUBIC_OPENAI_REASONING_MODEL") or "o4-mini-2025-04-16",
+    "claude": _env("CLOUBIC_CLAUDE_REASONING_MODEL") or "claude-sonnet-4-5-20250929-thinking",
+    "gemini": _env("CLOUBIC_GEMINI_REASONING_MODEL") or "gemini-2.5-pro",
+    "deepseek": _env("CLOUBIC_DEEPSEEK_REASONING_MODEL") or "deepSeek-R1-0528",
+    "grok": _env("CLOUBIC_GROK_REASONING_MODEL") or "grok-4-1-fast-reasoning",
+    "qwen": _env("CLOUBIC_QWEN_REASONING_MODEL") or "qwen3-max",
+    "doubao": _env("CLOUBIC_DOUBAO_REASONING_MODEL") or "doubao-seed-1-6-251015",
+    "minimax": _env("CLOUBIC_MINIMAX_REASONING_MODEL") or "MiniMax-Hailuo-2.3",
 }
 
 # ============ 自动创建目录 ============

@@ -22,9 +22,9 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config import OUTPUT_DIR, DEFAULT_THEME, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP
+from config import OUTPUT_DIR, DEFAULT_THEME, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP, CLOUBIC_REASONING_MODEL_MAP
 
-_PROVIDER_CHOICES = ["kimi", "gemini", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity", "claude"]
+_PROVIDER_CHOICES = ["kimi", "gemini", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity", "claude", "doubao"]
 _THEME_CHOICES = ["business", "academic", "tech", "minimal", "consulting", "creative"]
 
 
@@ -58,11 +58,14 @@ def _apply_cloubic_flag(args):
 
 def _print_connection_mode():
     """启动时打印当前 LLM 连接模式。"""
-    if CLOUBIC_ENABLED and CLOUBIC_API_KEY:
-        provider = os.environ.get("LLM_PROVIDER") or CLOUBIC_DEFAULT_PROVIDER
-        model = CLOUBIC_MODEL_MAP.get(provider, "unknown")
+    import config as _cfg
+    if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        provider = os.environ.get("LLM_PROVIDER") or _cfg.CLOUBIC_DEFAULT_PROVIDER
+        model = _cfg.CLOUBIC_MODEL_MAP.get(provider, "unknown")
+        reasoning = _cfg.CLOUBIC_REASONING_MODEL_MAP.get(provider, "N/A")
         print(f"  连接模式: Cloubic 统一路由", flush=True)
         print(f"  默认模型: {provider} -> {model}", flush=True)
+        print(f"  推理模型: {reasoning}", flush=True)
     else:
         from config import LLM_PROVIDER as _default_provider
         provider = os.environ.get("LLM_PROVIDER") or _default_provider or "kimi"

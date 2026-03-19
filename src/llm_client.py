@@ -26,7 +26,7 @@ from config import (
     PERPLEXITY_API_KEY, PERPLEXITY_BASE_URL, PERPLEXITY_MODEL,
     ANTHROPIC_API_KEY, ANTHROPIC_MODEL,
     CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL,
-    CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP,
+    CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP, CLOUBIC_REASONING_MODEL_MAP,
 )
 
 HTTP_TIMEOUT = httpx.Timeout(60.0, read=600.0)
@@ -258,3 +258,25 @@ def chat_vision(
     if p == "gemini":
         return _gemini_chat(messages, model, max_tokens, temperature)
     return _openai_compatible_chat("kimi", messages, model or KIMI_VISION_MODEL, max_tokens, temperature)
+
+
+def chat_reasoning(
+    messages: list,
+    provider: str = None,
+    model: str = None,
+    max_tokens: int = 16384,
+    temperature: float = 0.6,
+) -> str:
+    """
+    使用推理/思考版模型。仅 Cloubic 模式支持。
+    直连模式回退到普通 chat()。
+    """
+    p = (provider or os.getenv("LLM_PROVIDER") or LLM_PROVIDER or "kimi").lower().strip()
+
+    if _is_cloubic_mode():
+        reasoning_model = model or CLOUBIC_REASONING_MODEL_MAP.get(p)
+        if reasoning_model:
+            return _cloubic_chat(p, messages, reasoning_model, max_tokens, temperature)
+
+    # 直连模式无推理版，回退普通 chat
+    return chat(messages, provider, model, max_tokens, temperature)
