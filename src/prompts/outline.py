@@ -501,6 +501,115 @@ def build_skeleton_user_prompt(analysis: dict, slide_range: tuple = None,
     return "\n".join(parts)
 
 
+# ============================================================
+# Phase A-Batch: 按章节生成骨架
+# ============================================================
+CHAPTER_SKELETON_SYSTEM_PROMPT = """你是一位顶级的演示文稿架构师。
+你正在为一份大型PPT的**某一个章节**设计结构骨架。
+你会收到：本章的原文摘要、目标页数、可用的 slide ID 段、全局上下文。
+你只需输出本章的 slides 骨架（JSON数组），不包含 meta。
+
+## 输出格式
+[
+  {
+    "id": "s05",
+    "layout": "title_content|data_chart|infographic|two_column|key_insight|table|quote|methodology|architecture",
+    "title": "断言式标题（结论句，非主题标签）",
+    "chapter_ref": "ch01",
+    "rhythm": "dense|light",
+    "visual_type": "generate-image|matplotlib|infographics|null",
+    "design_intent": "一句话说明设计目的"
+  }
+]
+
+## 规则
+1. 必须使用指定的 slide ID（从 slide_id_range 中取）
+2. 必须恰好产出 target_pages 个 slide
+3. 标题必须是断言句（可验证的结论），不是主题标签
+4. 连续不超过3页 dense（title_content/data_chart/table），之后必须有 light 页
+5. 至少 60% 的页面有 visual_type（非 null）
+6. 本章的第一页应呈现该章核心结论
+7. layout 选择需多样化，不要全部用 title_content
+
+## 布局类型（内容页可用）
+- title_content: 常规内容页（左文右图）
+- data_chart: 数据图表页（有具体数值时用）
+- infographic: 概念/流程/对比页
+- two_column: 对比/双方观点页
+- key_insight: 关键发现/核心数据页
+- table: 表格数据页
+- quote: 引用/大字强调页
+- methodology: 方法/技术路线页
+- architecture: 系统架构/框架页"""
+
+
+def build_chapter_skeleton_user_prompt(
+    chapter_content: str,
+    chapter_blueprint: dict,
+    global_context: dict,
+    analysis_chapter: dict,
+) -> str:
+    """构建单章骨架生成的 user prompt。"""
+    import json
+
+    ch = chapter_blueprint
+    parts = []
+
+    parts.append("## 全局信息")
+    parts.append(f"PPT标题: {global_context['ppt_title']}")
+    parts.append(f"PPT总页数: {global_context['total_slides']}")
+
+    # 前后章标题（衔接参考）
+    adj = global_context.get("adjacent_chapters", {})
+    if adj.get("prev"):
+        parts.append(f"上一章: {adj['prev']}")
+    if adj.get("next"):
+        parts.append(f"下一章: {adj['next']}")
+
+    parts.append(f"\n## 本章配置")
+    parts.append(f"章节ID: {ch['chapter_id']}")
+    parts.append(f"章节标题: {ch['chapter_title']}")
+    parts.append(f"目标页数: {ch['target_content_pages']}")
+    parts.append(f"可用 slide ID: {json.dumps(ch['slide_id_range'])}")
+    parts.append(f"节奏提示: {ch['rhythm_hint']}")
+    parts.append(f"权重: {ch['weight']}")
+
+    # 章节分析数据
+    if analysis_chapter:
+        parts.append(f"\n## 章节分析")
+        parts.append(f"摘要: {analysis_chapter.get('summary', '')}")
+        data_points = analysis_chapter.get("data_points", [])
+        if data_points:
+            parts.append(f"数据点 ({len(data_points)}):")
+            for dp in data_points[:10]:
+                parts.append(f"  - {dp}")
+        concepts = analysis_chapter.get("concepts", [])
+        if concepts:
+            parts.append(f"核心概念: {', '.join(concepts[:8])}")
+        key_points = analysis_chapter.get("key_points", [])
+        if key_points:
+            parts.append("关键要点:")
+            for kp in key_points:
+                parts.append(f"  - {kp}")
+
+    # 原文内容
+    content_limit = 6000
+    content = chapter_content[:content_limit] if len(chapter_content) > content_limit else chapter_content
+    parts.append(f"\n## 本章原文内容\n{content}")
+
+    # 风格规则
+    rules = global_context.get("style_rules", {})
+    if rules:
+        parts.append("\n## 风格规则")
+        parts.append(f"配色: {json.dumps(rules.get('color_scheme', {}), ensure_ascii=False)}")
+        parts.append(f"布局要求: {rules.get('layout_distribution', '')}")
+        parts.append(f"最大连续密集页: {rules.get('max_consecutive_dense', 3)}")
+
+    parts.append(f"\n请输出本章的 {ch['target_content_pages']} 个 slide 骨架（JSON数组），使用 ID: {ch['slide_id_range'][0]} ~ {ch['slide_id_range'][-1]}。")
+
+    return "\n".join(parts)
+
+
 def build_detail_user_prompt(skeleton: dict, slides_to_fill: list,
                               chapter_content: str, analysis: dict) -> str:
     """构建 Phase B 逐页设计的 user prompt。"""

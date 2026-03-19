@@ -10,11 +10,13 @@ from pathlib import Path
 
 import src  # noqa: F401
 from config import OUTLINE_CONTENT_LIMIT, DEFAULT_SLIDE_RANGE
+from config import CHARS_PER_SLIDE, DATA_POINT_BONUS, MAX_PAGES_PER_CHAPTER
 from src.llm_client import chat
 from src.prompts.outline import (
     OUTLINE_SYSTEM_PROMPT, build_outline_user_prompt,
     OUTLINE_SKELETON_PROMPT, OUTLINE_DETAIL_PROMPT,
     build_skeleton_user_prompt, build_detail_user_prompt,
+    CHAPTER_SKELETON_SYSTEM_PROMPT, build_chapter_skeleton_user_prompt,
 )
 
 
@@ -22,38 +24,183 @@ from src.prompts.outline import (
 DETAIL_BATCH_SIZE = 8
 
 
+def estimate_slides(analysis: dict) -> tuple:
+    """
+    根据 analysis.json 内容自动推算 PPT 页数。
+
+    Returns:
+        (slide_range, per_chapter_targets)
+        - slide_range: (min_pages, max_pages)
+        - per_chapter_targets: {"ch01": 5, "ch02": 3, ...}
+    """
+    chapters = analysis.get("chapters", [])
+    if not chapters:
+        return (15, 20), {}
+
+    base_pages = 4  # cover + agenda + summary + end
+    section_breaks = min(len(chapters), 7)
+
+    content_pages = 0
+    per_chapter_targets = {}
+
+    for ch in chapters:
+        ch_id = ch.get("id", f"ch{len(per_chapter_targets)+1:02d}")
+
+        # 字数基线：从 summary + key_points 估算内容量
+        text_len = len(ch.get("summary", ""))
+        for kp in ch.get("key_points", []):
+            text_len += len(kp)
+        raw = text_len / CHARS_PER_SLIDE
+
+        # 数据点加成
+        data_bonus = len(ch.get("data_points", [])) * DATA_POINT_BONUS
+
+        # 权重调整
+        weight = ch.get("weight", 3)
+        weighted = (raw + data_bonus) * (weight / 3)
+
+        # 限幅
+        pages = max(1, min(MAX_PAGES_PER_CHAPTER, round(weighted)))
+        per_chapter_targets[ch_id] = pages
+        content_pages += pages
+
+    total = base_pages + section_breaks + content_pages
+    slide_range = (max(10, total - 2), total + 3)
+
+    print(f"[Step2] 自动页数推算: {total} 页 (范围 {slide_range[0]}~{slide_range[1]}), "
+          f"{len(chapters)} 章, 内容页 {content_pages}", flush=True)
+
+    return slide_range, per_chapter_targets
+
+
+def build_global_blueprint(analysis: dict, per_chapter_targets: dict) -> dict:
+    """
+    生成全局蓝图：预分配 slide ID、固定页、每章配置。
+    纯规则计算，不调 LLM。
+
+    Args:
+        analysis: Step1 输出的 analysis.json
+        per_chapter_targets: estimate_slides() 输出的每章页数分配
+
+    Returns:
+        global_blueprint dict
+    """
+    chapters = analysis.get("chapters", [])
+    title = analysis.get("title", "演示文稿")
+    rhythm_plan = analysis.get("rhythm_plan", [])
+
+    # 计算总页数
+    section_break_count = min(len(chapters), 7)
+    content_pages = sum(per_chapter_targets.values())
+    total = 4 + section_break_count + content_pages  # cover+agenda+summary+end + breaks + content
+
+    # 预分配 slide ID
+    sid = 1
+    fixed_pages = [
+        {"id": f"s{sid:02d}", "layout": "cover", "title": title},
+    ]
+    sid += 1
+    fixed_pages.append({"id": f"s{sid:02d}", "layout": "agenda", "title": "目录"})
+    sid += 1
+
+    # 每章的蓝图
+    chapter_blueprints = []
+    rhythm_idx = 0
+
+    for ch in chapters:
+        ch_id = ch.get("id", f"ch{len(chapter_blueprints)+1:02d}")
+        ch_title = ch.get("title", "")
+        target = per_chapter_targets.get(ch_id, 2)
+
+        # section_break ID
+        sb_id = f"s{sid:02d}"
+        sid += 1
+
+        # 内容页 ID 范围
+        slide_ids = [f"s{sid + i:02d}" for i in range(target)]
+        sid += target
+
+        # rhythm hint: 从全局 rhythm_plan 切片
+        hint_parts = []
+        for _ in range(target):
+            if rhythm_idx < len(rhythm_plan):
+                hint_parts.append(rhythm_plan[rhythm_idx])
+                rhythm_idx += 1
+            else:
+                hint_parts.append("dense" if len(hint_parts) % 3 != 0 else "light")
+        rhythm_hint = "-".join(hint_parts)
+
+        chapter_blueprints.append({
+            "chapter_id": ch_id,
+            "chapter_title": ch_title,
+            "section_break_id": sb_id,
+            "target_content_pages": target,
+            "slide_id_range": slide_ids,
+            "weight": ch.get("weight", 3),
+            "rhythm_hint": rhythm_hint,
+        })
+
+    # 尾部固定页
+    summary_id = f"s{sid:02d}"
+    sid += 1
+    end_id_page = f"s{sid:02d}"
+
+    fixed_pages.append({"id": summary_id, "layout": "summary", "title": "核心结论"})
+    fixed_pages.append({"id": end_id_page, "layout": "end", "title": "谢谢观看"})
+
+    # 提取配色方案（从 analysis 的 content_type 推断默认值）
+    content_type = analysis.get("content_type", "")
+    color_scheme = _default_color_scheme(content_type)
+
+    blueprint = {
+        "title": title,
+        "total_slides": total,
+        "fixed_pages": fixed_pages,
+        "chapters": chapter_blueprints,
+        "style_rules": {
+            "color_scheme": color_scheme,
+            "layout_distribution": "每章至少1个data_chart或infographic",
+            "max_consecutive_dense": 3,
+        },
+    }
+
+    print(f"[Step2] 全局蓝图: {total} 页, {len(chapter_blueprints)} 章", flush=True)
+    return blueprint
+
+
+def _default_color_scheme(content_type: str) -> dict:
+    """根据内容类型返回默认配色方案。"""
+    schemes = {
+        "industry_report": {"primary": "#1B365D", "secondary": "#4A90D9", "accent": "#E8612D", "background": "#FFFFFF", "text": "#333333"},
+        "academic_defense": {"primary": "#002060", "secondary": "#0060A8", "accent": "#C00000", "background": "#FFFFFF", "text": "#333333"},
+        "competition_pitch": {"primary": "#2D3436", "secondary": "#6C5CE7", "accent": "#E17055", "background": "#FFFFFF", "text": "#333333"},
+    }
+    return schemes.get(content_type, {"primary": "#002060", "secondary": "#0060A8", "accent": "#C00000", "background": "#FFFFFF", "text": "#333333"})
+
+
 def run_outline(base: str, output_dir: Path, style_profile: dict = None,
                 slide_range: tuple = None, two_phase: bool = True) -> dict:
     """
     Step2 入口：生成幻灯片大纲。
-
-    Args:
-        base: 项目名称
-        output_dir: output/{base}/ 目录
-        style_profile: 风格配置（从参考模板提取，可选）
-        slide_range: (min, max) 幻灯片数量范围
-        two_phase: True=两阶段模式(推荐), False=兼容单次模式
-
-    Returns:
-        {"slide_plan_path": Path, "slide_plan": dict}
     """
-    # 读取 Step1 输出
     analysis = json.loads((output_dir / "analysis.json").read_text(encoding="utf-8"))
-
-    # 读取原始内容
     raw_content = (output_dir / "raw_content.md").read_text(encoding="utf-8", errors="replace")
 
-    slide_range = slide_range or DEFAULT_SLIDE_RANGE
+    # 自动页数推算（用户未指定 --slides 时）
+    per_chapter_targets = None
+    if slide_range is None and two_phase:
+        slide_range, per_chapter_targets = estimate_slides(analysis)
+    elif slide_range is None:
+        slide_range = DEFAULT_SLIDE_RANGE
 
     if two_phase:
-        slide_plan = _run_two_phase(analysis, raw_content, style_profile, slide_range, output_dir)
+        slide_plan = _run_two_phase(analysis, raw_content, style_profile, slide_range,
+                                     output_dir, per_chapter_targets)
     else:
         slide_plan = _run_single_phase(analysis, raw_content, style_profile, slide_range)
 
-    # ── 功能页自动校验与补全（借鉴 PPTAgent 规则引擎） ──
     slide_plan = _ensure_structural_pages(slide_plan, analysis)
 
-    # 保存
     plan_path = output_dir / "slide_plan.json"
     plan_path.write_text(json.dumps(slide_plan, ensure_ascii=False, indent=2), encoding="utf-8")
 
@@ -65,62 +212,184 @@ def run_outline(base: str, output_dir: Path, style_profile: dict = None,
 
 
 # ============================================================
+# 分章骨架生成（Phase A 改造版）
+# ============================================================
+def _run_chapter_skeleton_phase(analysis: dict, blueprint: dict,
+                                 raw_content: str, output_dir: Path) -> list:
+    """
+    按章节分批生成骨架（Phase A 改造版）。
+    每章独立调用一次 LLM，用全局蓝图协调。
+    """
+    chapter_map = _build_chapter_content_map(analysis, raw_content)
+    chapters_analysis = {ch["id"]: ch for ch in analysis.get("chapters", []) if "id" in ch}
+    bp_chapters = blueprint["chapters"]
+
+    all_skeletons = []
+
+    # 固定页：cover + agenda（蓝图前两个）
+    for fp in blueprint["fixed_pages"]:
+        if fp["layout"] in ("cover", "agenda"):
+            all_skeletons.append({
+                "id": fp["id"],
+                "layout": fp["layout"],
+                "title": fp["title"],
+                "chapter_ref": "",
+                "rhythm": "light",
+                "visual_type": "generate-image" if fp["layout"] == "cover" else "null",
+                "design_intent": "封面" if fp["layout"] == "cover" else "章节导航",
+            })
+
+    for ch_idx, ch_bp in enumerate(bp_chapters):
+        ch_id = ch_bp["chapter_id"]
+        print(f"[Step2-A] 章节 {ch_idx+1}/{len(bp_chapters)}: {ch_bp['chapter_title'][:30]} "
+              f"({ch_bp['target_content_pages']} 页)...", flush=True)
+
+        # section_break
+        all_skeletons.append({
+            "id": ch_bp["section_break_id"],
+            "layout": "section_break",
+            "title": ch_bp["chapter_title"],
+            "subtitle": f"PART {ch_idx+1:02d}",
+            "chapter_ref": ch_id,
+            "rhythm": "light",
+            "visual_type": "generate-image",
+            "design_intent": "章节过渡，营造节奏感",
+        })
+
+        # 构建上下文
+        adj = {}
+        if ch_idx > 0:
+            adj["prev"] = bp_chapters[ch_idx - 1]["chapter_title"]
+        if ch_idx < len(bp_chapters) - 1:
+            adj["next"] = bp_chapters[ch_idx + 1]["chapter_title"]
+
+        global_context = {
+            "ppt_title": blueprint["title"],
+            "total_slides": blueprint["total_slides"],
+            "adjacent_chapters": adj,
+            "style_rules": blueprint["style_rules"],
+        }
+
+        chapter_content = chapter_map.get(ch_id, "")
+        analysis_ch = chapters_analysis.get(ch_id, {})
+
+        user_prompt = build_chapter_skeleton_user_prompt(
+            chapter_content, ch_bp, global_context, analysis_ch
+        )
+
+        response = chat(
+            [
+                {"role": "system", "content": CHAPTER_SKELETON_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=4096,
+            temperature=0.4,
+        )
+
+        batch_slides = _parse_json_response(response)
+        if isinstance(batch_slides, dict):
+            batch_slides = batch_slides.get("slides", [batch_slides])
+        if not isinstance(batch_slides, list):
+            batch_slides = [batch_slides]
+
+        # 确保 chapter_ref 正确
+        for s in batch_slides:
+            if isinstance(s, dict):
+                s["chapter_ref"] = ch_id
+                all_skeletons.append(s)
+
+    # 固定页：summary + end
+    for fp in blueprint["fixed_pages"]:
+        if fp["layout"] in ("summary", "end"):
+            all_skeletons.append({
+                "id": fp["id"],
+                "layout": fp["layout"],
+                "title": fp["title"],
+                "chapter_ref": "",
+                "rhythm": "light",
+                "visual_type": "infographics" if fp["layout"] == "summary" else "generate-image",
+                "design_intent": "总结回顾" if fp["layout"] == "summary" else "致谢收尾",
+            })
+
+    print(f"[Step2-A] 分章骨架完成: 共 {len(all_skeletons)} 页", flush=True)
+    return all_skeletons
+
+
+# ============================================================
 # 两阶段模式
 # ============================================================
 def _run_two_phase(analysis: dict, raw_content: str,
                    style_profile: dict, slide_range: tuple,
-                   output_dir: Path) -> dict:
+                   output_dir: Path, per_chapter_targets: dict = None) -> dict:
     """Phase A 结构编排 + Phase B 逐页设计。"""
 
-    # ── Phase A: 结构骨架 ──
-    print("[Step2-A] 正在生成结构骨架...", flush=True)
-    skeleton_prompt = build_skeleton_user_prompt(analysis, slide_range, style_profile)
+    # ── 判断是否使用分章模式 ──
+    use_chapter_batch = per_chapter_targets is not None and len(per_chapter_targets) > 0
 
-    skeleton_response = chat(
-        [
-            {"role": "system", "content": OUTLINE_SKELETON_PROMPT},
-            {"role": "user", "content": skeleton_prompt},
-        ],
-        max_tokens=8192,
-        temperature=0.4,
-    )
-    skeleton = _parse_json_response(skeleton_response)
+    if use_chapter_batch:
+        # ── Phase A (分章模式): 按章节逐个生成骨架 ──
+        blueprint = build_global_blueprint(analysis, per_chapter_targets)
 
-    # 保存中间结果
+        # 保存蓝图
+        (output_dir / "global_blueprint.json").write_text(
+            json.dumps(blueprint, ensure_ascii=False, indent=2), encoding="utf-8"
+        )
+
+        slides = _run_chapter_skeleton_phase(analysis, blueprint, raw_content, output_dir)
+    else:
+        # ── Phase A (原有模式): 一次性生成全部骨架 ──
+        print("[Step2-A] 正在生成结构骨架...", flush=True)
+        skeleton_prompt = build_skeleton_user_prompt(analysis, slide_range, style_profile)
+
+        skeleton_response = chat(
+            [
+                {"role": "system", "content": OUTLINE_SKELETON_PROMPT},
+                {"role": "user", "content": skeleton_prompt},
+            ],
+            max_tokens=8192,
+            temperature=0.4,
+        )
+        skeleton_data = _parse_json_response(skeleton_response)
+        slides = skeleton_data.get("slides", [])
+
+    # 保存骨架中间结果
+    skeleton = {"meta": {}, "slides": slides}
+    if use_chapter_batch:
+        skeleton["meta"] = {
+            "title": analysis.get("title", ""),
+            "total_slides": len(slides),
+            "color_scheme": blueprint["style_rules"]["color_scheme"],
+        }
+
     (output_dir / "slide_skeleton.json").write_text(
         json.dumps(skeleton, ensure_ascii=False, indent=2), encoding="utf-8"
     )
 
-    slides = skeleton.get("slides", [])
     print(f"[Step2-A] 骨架完成: {len(slides)} 页", flush=True)
 
     if not slides:
         print("[Step2] 骨架为空，回退到单次模式", flush=True)
         return _run_single_phase(analysis, raw_content, style_profile, slide_range)
 
-    # ── Phase B: 按章节批次填充内容 ──
+    # ── Phase B: 按章节批次填充内容（不变） ──
     print("[Step2-B] 正在逐批填充页面内容...", flush=True)
 
-    # 把页面按 chapter_ref 分组
     batches = _group_slides_into_batches(slides)
     chapter_map = _build_chapter_content_map(analysis, raw_content)
 
     filled_slides = {}
 
     for batch_idx, batch in enumerate(batches, 1):
-        # 收集该批次涉及的章节内容
         chapter_refs = set(s.get("chapter_ref") or "" for s in batch)
         chapter_content_parts = []
         for ref in sorted(chapter_refs):
             if ref and ref in chapter_map:
                 chapter_content_parts.append(chapter_map[ref])
 
-        # 如果没有匹配的章节内容，用原始内容的前部分
         if not chapter_content_parts:
             chapter_content = raw_content[:4000]
         else:
             chapter_content = "\n\n".join(chapter_content_parts)
-            # 限制长度避免超限
             if len(chapter_content) > 8000:
                 chapter_content = chapter_content[:8000]
 
@@ -139,9 +408,7 @@ def _run_two_phase(analysis: dict, raw_content: str,
         )
         detail_slides = _parse_json_response(detail_response)
 
-        # detail_slides 可能是数组或 dict
         if isinstance(detail_slides, dict):
-            # 可能返回了 {"slides": [...]} 的格式
             detail_slides = detail_slides.get("slides", [detail_slides])
         if not isinstance(detail_slides, list):
             detail_slides = [detail_slides]
@@ -155,14 +422,11 @@ def _run_two_phase(analysis: dict, raw_content: str,
     for skel_slide in slides:
         sid = skel_slide["id"]
         if sid in filled_slides:
-            # 以填充结果为主，补充骨架中的字段
             merged = {**skel_slide, **filled_slides[sid]}
             merged_slides.append(merged)
         else:
-            # 未被填充的页面（可能是 cover/end 等简单页面），保留骨架
             merged_slides.append(skel_slide)
 
-    # 确保所有 slide 至少有基本字段
     for s in merged_slides:
         if "bullets" not in s:
             s["bullets"] = []
@@ -170,7 +434,6 @@ def _run_two_phase(analysis: dict, raw_content: str,
             s["notes"] = ""
         if "takeaway" not in s:
             s["takeaway"] = ""
-        # visual 字段：从 visual_type 推断（如果 Phase B 没填充）
         if "visual" not in s and s.get("visual_type") and s["visual_type"] != "null":
             s["visual"] = {"type": s["visual_type"]}
 
@@ -178,8 +441,6 @@ def _run_two_phase(analysis: dict, raw_content: str,
         "meta": skeleton.get("meta", {}),
         "slides": merged_slides,
     }
-
-    # 更新 total_slides
     slide_plan["meta"]["total_slides"] = len(merged_slides)
 
     return slide_plan

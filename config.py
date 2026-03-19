@@ -105,6 +105,11 @@ MAX_CHARS_PER_BULLET = 25
 CHART_DPI = 300
 CHART_FIGSIZE = (19.2, 10.8)  # 1920x1080 at 100 DPI
 
+# ============ 页数推算 ============
+CHARS_PER_SLIDE = 1500           # 每页对应的原文字数基线
+DATA_POINT_BONUS = 0.8           # 每个数据点额外加的页数
+MAX_PAGES_PER_CHAPTER = 8        # 单章最大内容页数
+
 # ============ 支持的文件扩展名 ============
 TEXT_EXTENSIONS = {".txt", ".md", ".json", ".html"}
 DOCUMENT_EXTENSIONS = {".docx", ".pdf"}
