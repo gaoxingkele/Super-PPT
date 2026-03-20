@@ -343,7 +343,7 @@ def _fallback_gradient(prompt: str, output_path: Path):
 
 # --------------- 主入口 ---------------
 def generate_image(visual: dict, output_path: Path):
-    """生成 AI 图片。优先级：豆包 → Cloubic → Gemini 直连 → matplotlib。"""
+    """生成 AI 图片。优先级：Cloubic(doubao-seedream) → 豆包直连 → Gemini 直连 → matplotlib。"""
     import config as _cfg
     prompt = visual.get("prompt", "professional presentation background")
     logger.info("开始生成图片 | prompt: %.100s | output: %s", prompt, output_path)
@@ -352,19 +352,19 @@ def generate_image(visual: dict, output_path: Path):
     success = False
     method = "matplotlib 回退"
 
-    # 1. 优先尝试豆包 Seedream 直连
-    if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
-        success = _call_doubao_image(prompt, output_path)
-        if success:
-            method = f"豆包 Seedream ({DOUBAO_IMAGE_MODEL})"
-
-    # 2. Cloubic 路由
+    # 1. 优先 Cloubic 路由（doubao-seedream-5-0 via Cloubic）
     if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
         success = _call_cloubic_image(prompt, output_path)
         if success:
-            method = f"Cloubic ({GEMINI_IMAGE_MODEL})"
+            method = f"Cloubic ({_cfg.CLOUBIC_IMAGE_MODEL})"
 
-    # 3. Gemini 直连
+    # 2. 豆包 Seedream 直连（备选）
+    if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
+        success = _call_doubao_image(prompt, output_path)
+        if success:
+            method = f"豆包直连 ({DOUBAO_IMAGE_MODEL})"
+
+    # 3. Gemini 直连（备选）
     if not success:
         success = _call_gemini(prompt, output_path)
         if success:

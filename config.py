@@ -75,7 +75,7 @@ DOUBAO_IMAGE_MODEL = _env("DOUBAO_IMAGE_MODEL", "seedream-5-0-260128")
 # ============ LLM 候选列表（解析失败时依次尝试） ============
 # 格式: provider1,provider2,...  留空则不重试
 REVIEW_FALLBACK_PROVIDERS = [
-    p.strip() for p in _env("REVIEW_FALLBACK_PROVIDERS", "gemini,qwen,deepseek").split(",") if p.strip()
+    p.strip() for p in _env("REVIEW_FALLBACK_PROVIDERS", "deepseek,gemini,qwen").split(",") if p.strip()
 ]
 
 # ============ PPT 生成语言 ============
