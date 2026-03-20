@@ -124,6 +124,12 @@ def cmd_generate(args):
         run_analyze(base, output_dir)
         save_progress(base, output_dir, "step1")
 
+    # Step1.5: 联网数据补充（可选）
+    if getattr(args, "enrich", False):
+        _log_step("Step1.5 联网数据补充")
+        from src.step1_5_enrich import run_enrich
+        run_enrich(base, output_dir)
+
     # Step2: 幻灯片大纲
     if should_skip_step(progress, "step2"):
         _log_step("跳过 Step2（已完成）")
@@ -191,6 +197,15 @@ def cmd_outline(args):
         from src.style_extractor import extract_style
         style_profile = extract_style(template_path)
     run_outline(args.base, output_dir, style_profile, slide_range)
+
+
+def cmd_enrich(args):
+    """仅 Step1.5: 联网数据补充。"""
+    _apply_provider(getattr(args, "provider", None))
+    from src.step1_5_enrich import run_enrich
+    output_dir = OUTPUT_DIR / args.base
+    r = run_enrich(args.base, output_dir)
+    print(f"补充完成: +{r['new_data_points']} 数据点, +{r['new_key_points']} 关键要点")
 
 
 def cmd_visuals(args):
@@ -334,6 +349,7 @@ def main():
     pg.add_argument("--slides", default=None, help="幻灯片数量范围（如 15-25）")
     pg.add_argument("--no-ai-images", action="store_true", help="跳过 AI 图片生成（快速预览）")
     pg.add_argument("--no-resume", action="store_true", help="禁用断点续传，从头执行")
+    pg.add_argument("--enrich", action="store_true", help="启用 Step1.5 联网数据补充（补充最新数据/事件）")
     pg.add_argument("--cloubic", action="store_true", help="强制使用 Cloubic 统一路由（需配置 .env.cloubic）")
     pg.add_argument("--direct", action="store_true", help="强制使用直连模式（忽略 .env.cloubic）")
     pg.add_argument("--review", action="store_true", help="启用 Step5 三角色迭代审阅")
@@ -354,6 +370,12 @@ def main():
     p1.add_argument("base", help="项目名称（output/{base}/）")
     _add_provider_arg(p1)
     p1.set_defaults(func=cmd_analyze)
+
+    p15 = sub.add_parser("enrich", help="Step1.5: 联网数据补充（补充最新数据/事件）")
+    subparsers_map["enrich"] = p15
+    p15.add_argument("base", help="项目名称")
+    _add_provider_arg(p15)
+    p15.set_defaults(func=cmd_enrich)
 
     p2 = sub.add_parser("outline", help="Step2: 幻灯片大纲生成")
     subparsers_map["outline"] = p2
