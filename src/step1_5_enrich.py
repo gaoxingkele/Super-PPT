@@ -126,22 +126,40 @@ def _merge_enrichment(analysis: dict, enrichment_text: str) -> dict:
 3. 不修改已有内容，只追加
 4. 输出完整的 JSON（与输入结构一致）"""
 
+    # 精简 analysis：只保留章节骨架，减少 token
+    slim_analysis = {
+        "title": analysis.get("title", ""),
+        "content_type": analysis.get("content_type", ""),
+        "chapters": []
+    }
+    for ch in analysis.get("chapters", []):
+        slim_ch = {
+            "id": ch.get("id", ""),
+            "title": ch.get("title", ""),
+            "summary": ch.get("summary", "")[:200],
+            "key_points": ch.get("key_points", []),
+            "data_points": ch.get("data_points", []),
+        }
+        slim_analysis["chapters"].append(slim_ch)
+
     user_prompt = f"""现有分析结构：
 ```json
-{json.dumps(analysis, ensure_ascii=False, indent=2)[:12000]}
+{json.dumps(slim_analysis, ensure_ascii=False, indent=2)[:8000]}
 ```
 
 联网检索到的最新数据：
-{enrichment_text[:6000]}
+{enrichment_text[:5000]}
 
-请将最新数据整合到分析结构中，输出完整 JSON。"""
+请将最新数据整合到分析结构中。在每个章节的 data_points 末尾追加新数据，在 key_points 末尾追加更新要点。输出完整 JSON。"""
 
     print("[Step1.5] 正在整合最新数据到分析结构...", flush=True)
+    # 整合步骤用 gemini（避免 openai 大 prompt 导致 Cloubic 超时）
     response = chat(
         [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ],
+        provider="gemini",
         max_tokens=16384,
         temperature=0.2,
     )
