@@ -378,6 +378,7 @@ def _run_two_phase(analysis: dict, raw_content: str,
     chapter_map = _build_chapter_content_map(analysis, raw_content)
 
     filled_slides = {}
+    PHASE_B_MAX_RETRIES = 2  # 批次级重试
 
     for batch_idx, batch in enumerate(batches, 1):
         chapter_refs = set(s.get("chapter_ref") or "" for s in batch)
@@ -393,29 +394,51 @@ def _run_two_phase(analysis: dict, raw_content: str,
             if len(chapter_content) > 8000:
                 chapter_content = chapter_content[:8000]
 
-        print(f"[Step2-B] 批次 {batch_idx}/{len(batches)}: 填充 {len(batch)} 页 "
-              f"(chapters: {', '.join(sorted(chapter_refs))})", flush=True)
+        batch_ids = {s["id"] for s in batch if s.get("layout") not in ("cover", "agenda", "section_break", "end")}
 
-        detail_prompt = build_detail_user_prompt(skeleton, batch, chapter_content, analysis)
+        for attempt in range(1, PHASE_B_MAX_RETRIES + 1):
+            print(f"[Step2-B] 批次 {batch_idx}/{len(batches)}: 填充 {len(batch)} 页 "
+                  f"(chapters: {', '.join(sorted(chapter_refs))})"
+                  f"{f' [重试{attempt}]' if attempt > 1 else ''}", flush=True)
 
-        detail_response = chat(
-            [
-                {"role": "system", "content": OUTLINE_DETAIL_PROMPT},
-                {"role": "user", "content": detail_prompt},
-            ],
-            max_tokens=16384,
-            temperature=0.5,
-        )
-        detail_slides = _parse_json_response(detail_response)
+            detail_prompt = build_detail_user_prompt(skeleton, batch, chapter_content, analysis)
 
-        if isinstance(detail_slides, dict):
-            detail_slides = detail_slides.get("slides", [detail_slides])
-        if not isinstance(detail_slides, list):
-            detail_slides = [detail_slides]
+            try:
+                detail_response = chat(
+                    [
+                        {"role": "system", "content": OUTLINE_DETAIL_PROMPT},
+                        {"role": "user", "content": detail_prompt},
+                    ],
+                    max_tokens=16384,
+                    temperature=0.5,
+                )
+            except Exception as e:
+                print(f"[Step2-B] 批次 {batch_idx} LLM 调用失败: {e}", flush=True)
+                if attempt < PHASE_B_MAX_RETRIES:
+                    continue
+                break
 
-        for ds in detail_slides:
-            if isinstance(ds, dict) and "id" in ds:
-                filled_slides[ds["id"]] = ds
+            detail_slides = _parse_json_response(detail_response)
+
+            if isinstance(detail_slides, dict):
+                detail_slides = detail_slides.get("slides", [detail_slides])
+            if not isinstance(detail_slides, list):
+                detail_slides = [detail_slides]
+
+            batch_filled = 0
+            for ds in detail_slides:
+                if isinstance(ds, dict) and "id" in ds:
+                    filled_slides[ds["id"]] = ds
+                    batch_filled += 1
+
+            # 检查本批次内容页是否被填充
+            unfilled = batch_ids - set(filled_slides.keys())
+            if unfilled and attempt < PHASE_B_MAX_RETRIES:
+                print(f"[Step2-B] 批次 {batch_idx} 有 {len(unfilled)} 页未填充 ({unfilled})，重试...", flush=True)
+                continue
+            elif unfilled:
+                print(f"[Step2-B] 警告: 批次 {batch_idx} 仍有 {len(unfilled)} 页未填充: {unfilled}", flush=True)
+            break
 
     # ── 合并骨架 + 填充内容 ──
     # 先按 ID 精确匹配，再用未匹配的填充数据按顺序补位
