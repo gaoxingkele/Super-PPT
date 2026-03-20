@@ -234,6 +234,67 @@ def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
     return False
 
 
+# --------------- Cloubic /images/generations 调用（wan2.6-t2i 等） ---------------
+def _call_cloubic_image_gen(prompt: str, output_path: Path, model: str) -> bool:
+    """通过 Cloubic /images/generations 端点调用按次计费的图片模型。"""
+    import config as _cfg
+    if not _cfg.CLOUBIC_ENABLED or not _cfg.CLOUBIC_API_KEY:
+        return False
+
+    enhanced_prompt = _enhance_prompt(prompt)
+    url = f"{_cfg.CLOUBIC_BASE_URL}/images/generations"
+    headers = {"Authorization": f"Bearer {_cfg.CLOUBIC_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": model,
+        "prompt": enhanced_prompt,
+        "response_format": "b64_json",
+        "size": "1024x1024",
+    }
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info("Cloubic 图片生成 第 %d/%d 次 | model: %s", attempt, MAX_RETRIES, model)
+        try:
+            with httpx.Client(timeout=REQUEST_TIMEOUT, proxy=None) as client:
+                resp = client.post(url, json=payload, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning("Cloubic 图片API 返回 HTTP %d: %s", resp.status_code, resp.text[:300])
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+                continue
+
+            data = resp.json()
+            img_list = data.get("data", [])
+            if img_list:
+                # 优先 b64_json，其次 url
+                b64 = img_list[0].get("b64_json", "")
+                if b64:
+                    image_bytes = base64.b64decode(b64)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_bytes(image_bytes)
+                    logger.info("Cloubic 图片已保存: %s (%.1f KB) | model: %s", output_path, len(image_bytes) / 1024, model)
+                    return True
+                img_url = img_list[0].get("url", "")
+                if img_url:
+                    img_resp = httpx.get(img_url, timeout=60)
+                    if img_resp.status_code == 200:
+                        output_path.parent.mkdir(parents=True, exist_ok=True)
+                        output_path.write_bytes(img_resp.content)
+                        logger.info("Cloubic 图片已保存(url): %s (%.1f KB)", output_path, len(img_resp.content) / 1024)
+                        return True
+
+            logger.warning("Cloubic 图片响应无数据 (第 %d 次) | model: %s", attempt, model)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+        except Exception as exc:
+            logger.warning("Cloubic 图片异常 (第 %d 次): %s", attempt, exc)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+    return False
+
+
 # --------------- Gemini API 调用 ---------------
 def _call_gemini(prompt: str, output_path: Path) -> bool:
     """调用 Gemini 图片生成 API，成功返回 True 并保存 PNG 到 output_path。"""
@@ -343,7 +404,7 @@ def _fallback_gradient(prompt: str, output_path: Path):
 
 # --------------- 主入口 ---------------
 def generate_image(visual: dict, output_path: Path):
-    """生成 AI 图片。优先级：Cloubic(doubao-seedream) → 豆包直连 → Gemini 直连 → matplotlib。"""
+    """生成 AI 图片。优先级：Cloubic seedream → Cloubic wan2.6 → Cloubic qwen → 豆包直连 → matplotlib。"""
     import config as _cfg
     prompt = visual.get("prompt", "professional presentation background")
     logger.info("开始生成图片 | prompt: %.100s | output: %s", prompt, output_path)
@@ -352,27 +413,33 @@ def generate_image(visual: dict, output_path: Path):
     success = False
     method = "matplotlib 回退"
 
-    # 1. 优先 Cloubic 路由（doubao-seedream-5-0 via Cloubic）
+    # 1. Cloubic doubao-seedream-5-0（chat completions 格式）
     if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
         success = _call_cloubic_image(prompt, output_path)
         if success:
             method = f"Cloubic ({_cfg.CLOUBIC_IMAGE_MODEL})"
 
-    # 2. 豆包 Seedream 直连（备选）
+    # 2. 备选: Cloubic wan2.6-t2i（¥0.16/次）
+    if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        success = _call_cloubic_image_gen(prompt, output_path, "wan2.6-t2i")
+        if success:
+            method = "Cloubic (wan2.6-t2i)"
+
+    # 3. 备选: Cloubic qwen-image-edit-plus（¥0.16/次）
+    if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        success = _call_cloubic_image_gen(prompt, output_path, "qwen-image-edit-plus")
+        if success:
+            method = "Cloubic (qwen-image-edit-plus)"
+
+    # 4. 豆包 Seedream 直连
     if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
         success = _call_doubao_image(prompt, output_path)
         if success:
             method = f"豆包直连 ({DOUBAO_IMAGE_MODEL})"
 
-    # 3. Gemini 直连（备选）
+    # 5. matplotlib 回退
     if not success:
-        success = _call_gemini(prompt, output_path)
-        if success:
-            method = f"Gemini 直连 ({GEMINI_IMAGE_MODEL})"
-
-    # 4. matplotlib 回退
-    if not success:
-        logger.info("图片生成失败，回退至 matplotlib")
+        logger.info("图片生成全部失败，回退至 matplotlib")
         _fallback_gradient(prompt, output_path)
 
     elapsed = time.time() - start
