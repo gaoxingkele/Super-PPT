@@ -25,6 +25,7 @@ from config import (
     OPENAI_API_KEY, OPENAI_BASE_URL, OPENAI_MODEL,
     PERPLEXITY_API_KEY, PERPLEXITY_BASE_URL, PERPLEXITY_MODEL,
     ANTHROPIC_API_KEY, ANTHROPIC_MODEL,
+    DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_MODEL,
     CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL,
     CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP, CLOUBIC_REASONING_MODEL_MAP,
 )
@@ -41,11 +42,12 @@ PROVIDER_CONFIG = {
     "deepseek": {"key": DEEPSEEK_API_KEY, "base_url": DEEPSEEK_BASE_URL, "model": DEEPSEEK_MODEL},
     "openai": {"key": OPENAI_API_KEY, "base_url": OPENAI_BASE_URL, "model": OPENAI_MODEL},
     "perplexity": {"key": PERPLEXITY_API_KEY, "base_url": PERPLEXITY_BASE_URL, "model": PERPLEXITY_MODEL},
+    "doubao": {"key": DOUBAO_API_KEY, "base_url": DOUBAO_BASE_URL, "model": DOUBAO_MODEL},
     "claude": {"key": ANTHROPIC_API_KEY, "model": ANTHROPIC_MODEL},
     "gemini": {"key": GEMINI_API_KEY, "model": GEMINI_MODEL},
 }
 
-_OPENAI_COMPATIBLE = ("kimi", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity")
+_OPENAI_COMPATIBLE = ("kimi", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity", "doubao")
 
 
 def _is_retryable(exc: BaseException) -> bool:

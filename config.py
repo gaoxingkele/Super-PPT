@@ -66,6 +66,12 @@ PERPLEXITY_MODEL = _env("PERPLEXITY_MODEL", "sonar")
 ANTHROPIC_API_KEY = _env("ANTHROPIC_API_KEY")
 ANTHROPIC_MODEL = _env("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
+# ============ 豆包 Doubao（火山引擎） ============
+DOUBAO_API_KEY = _env("DOUBAO_API_KEY") or _env("ARK_API_KEY")
+DOUBAO_BASE_URL = _env("DOUBAO_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3"
+DOUBAO_MODEL = _env("DOUBAO_MODEL", "doubao-seed-1-6-250615")
+DOUBAO_IMAGE_MODEL = _env("DOUBAO_IMAGE_MODEL", "seedream-5-0-260128")
+
 # ============ LLM 候选列表（解析失败时依次尝试） ============
 # 格式: provider1,provider2,...  留空则不重试
 REVIEW_FALLBACK_PROVIDERS = [

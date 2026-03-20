@@ -16,7 +16,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 import src  # noqa: F401
-from config import GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL, CLOUBIC_IMAGE_MODEL
+from config import (GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL, CLOUBIC_IMAGE_MODEL,
+                    DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_IMAGE_MODEL)
 
 # --------------- 日志配置 ---------------
 logger = logging.getLogger(__name__)
@@ -119,6 +120,63 @@ def _extract_image_from_cloubic_response(data: dict) -> bytes:
                         except Exception:
                             pass
     return b""
+
+
+# --------------- 豆包 Seedream 图片生成 ---------------
+def _call_doubao_image(prompt: str, output_path: Path) -> bool:
+    """调用豆包 Seedream 图片生成 API（火山引擎直连）。"""
+    if not DOUBAO_API_KEY or not DOUBAO_IMAGE_MODEL:
+        return False
+
+    enhanced_prompt = _enhance_prompt(prompt)
+    url = f"{DOUBAO_BASE_URL}/images/generations"
+    headers = {"Authorization": f"Bearer {DOUBAO_API_KEY}", "Content-Type": "application/json"}
+    payload = {
+        "model": DOUBAO_IMAGE_MODEL,
+        "prompt": enhanced_prompt,
+        "response_format": "b64_json",
+        "size": "2560x1440",  # 16:9 适合 PPT
+        "seed": -1,
+        "watermark": False,
+    }
+
+    for attempt in range(1, MAX_RETRIES + 1):
+        logger.info("豆包 Seedream 图片生成 第 %d/%d 次 | model: %s", attempt, MAX_RETRIES, DOUBAO_IMAGE_MODEL)
+        try:
+            with httpx.Client(timeout=REQUEST_TIMEOUT) as client:
+                resp = client.post(url, json=payload, headers=headers)
+
+            if resp.status_code != 200:
+                logger.warning("豆包 API 返回 HTTP %d: %s", resp.status_code, resp.text[:300])
+                if attempt < MAX_RETRIES:
+                    time.sleep(2 * attempt)
+                continue
+
+            data = resp.json()
+            img_list = data.get("data", [])
+            if img_list:
+                b64_data = img_list[0].get("b64_json", "")
+                if b64_data:
+                    image_bytes = base64.b64decode(b64_data)
+                    output_path.parent.mkdir(parents=True, exist_ok=True)
+                    output_path.write_bytes(image_bytes)
+                    logger.info("豆包图片已保存: %s (%.1f KB)", output_path, len(image_bytes) / 1024)
+                    return True
+
+            logger.warning("豆包响应中未找到图片数据 (第 %d 次)", attempt)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+        except httpx.TimeoutException:
+            logger.warning("豆包 API 超时 (第 %d 次)", attempt)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+        except Exception as exc:
+            logger.error("豆包 API 异常 (第 %d 次): %s", attempt, exc)
+            if attempt < MAX_RETRIES:
+                time.sleep(2 * attempt)
+
+    return False
 
 
 # --------------- Cloubic OpenAI 兼容图片生成 ---------------
@@ -285,7 +343,7 @@ def _fallback_gradient(prompt: str, output_path: Path):
 
 # --------------- 主入口 ---------------
 def generate_image(visual: dict, output_path: Path):
-    """生成 AI 图片。Cloubic 模式优先走 Cloubic，否则直连 Gemini API，失败回退 matplotlib。"""
+    """生成 AI 图片。优先级：豆包 → Cloubic → Gemini 直连 → matplotlib。"""
     import config as _cfg
     prompt = visual.get("prompt", "professional presentation background")
     logger.info("开始生成图片 | prompt: %.100s | output: %s", prompt, output_path)
@@ -294,19 +352,25 @@ def generate_image(visual: dict, output_path: Path):
     success = False
     method = "matplotlib 回退"
 
-    # 优先尝试 Cloubic 路由
-    if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+    # 1. 优先尝试豆包 Seedream 直连
+    if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
+        success = _call_doubao_image(prompt, output_path)
+        if success:
+            method = f"豆包 Seedream ({DOUBAO_IMAGE_MODEL})"
+
+    # 2. Cloubic 路由
+    if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
         success = _call_cloubic_image(prompt, output_path)
         if success:
             method = f"Cloubic ({GEMINI_IMAGE_MODEL})"
 
-    # Cloubic 失败或未启用，尝试直连 Gemini
+    # 3. Gemini 直连
     if not success:
         success = _call_gemini(prompt, output_path)
         if success:
             method = f"Gemini 直连 ({GEMINI_IMAGE_MODEL})"
 
-    # 全部失败，回退 matplotlib
+    # 4. matplotlib 回退
     if not success:
         logger.info("图片生成失败，回退至 matplotlib")
         _fallback_gradient(prompt, output_path)
