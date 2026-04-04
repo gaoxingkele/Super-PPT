@@ -705,7 +705,7 @@ def _apply_reorder(slides: list, change: dict) -> list:
 def _rerun_visuals_selective(output_dir: Path, slide_plan: dict,
                               changed_ids: set, no_ai_images: bool) -> int:
     """只重新生成指定 slide_id 的视觉资产。"""
-    from src.step3_visuals import _render_visual
+    from src.step3_visuals import _render_visual, _route_visual
 
     assets_dir = output_dir / "assets"
     assets_dir.mkdir(parents=True, exist_ok=True)
@@ -726,14 +726,17 @@ def _rerun_visuals_selective(output_dir: Path, slide_plan: dict,
         if not visual or not isinstance(visual, dict):
             continue
         visual_type = visual.get("type", "")
-        if no_ai_images and visual_type == "generate-image":
+        routed_visual = _route_visual(slide, visual)
+        routed_type = routed_visual.get("type", visual_type)
+        if no_ai_images and routed_type == "generate-image":
             continue
 
         task = {
             "slide_id": sid,
-            "visual": visual,
+            "slide": slide,
+            "visual": routed_visual,
             "color_scheme": color_scheme,
-            "output_path": assets_dir / f"{sid}_{visual_type.replace('-', '_')}.png",
+            "output_path": assets_dir / f"{sid}_{routed_type.replace('-', '_')}.png",
         }
         try:
             result = _render_visual(task)

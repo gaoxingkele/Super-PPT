@@ -17,7 +17,7 @@ import numpy as np
 
 import src  # noqa: F401
 from config import (GEMINI_API_KEY, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_BASE_URL, CLOUBIC_IMAGE_MODEL,
-                    DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_IMAGE_MODEL)
+                    CLOUBIC_HIGH_QUALITY_IMAGE_MODEL, DOUBAO_API_KEY, DOUBAO_BASE_URL, DOUBAO_IMAGE_MODEL)
 
 # --------------- 日志配置 ---------------
 logger = logging.getLogger(__name__)
@@ -180,15 +180,15 @@ def _call_doubao_image(prompt: str, output_path: Path) -> bool:
 
 
 # --------------- Cloubic OpenAI 兼容图片生成 ---------------
-def _call_cloubic_image(prompt: str, output_path: Path) -> bool:
-    """通过 Cloubic OpenAI 兼容接口调用 Gemini 图片生成。"""
+def _call_cloubic_image(prompt: str, output_path: Path, model=None) -> bool:
+    """通过 Cloubic OpenAI 兼容接口调用高质量图片模型。"""
     import config as _cfg
     if not _cfg.CLOUBIC_ENABLED or not _cfg.CLOUBIC_API_KEY:
         return False
 
     enhanced_prompt = _enhance_prompt(prompt)
     # Cloubic 支持 OpenAI chat completions 格式调用图片模型
-    image_model = _cfg.CLOUBIC_IMAGE_MODEL or GEMINI_IMAGE_MODEL
+    image_model = model or _cfg.CLOUBIC_HIGH_QUALITY_IMAGE_MODEL or _cfg.CLOUBIC_IMAGE_MODEL or GEMINI_IMAGE_MODEL
     payload = {
         "model": image_model,
         "messages": [{"role": "user", "content": enhanced_prompt}],
@@ -404,38 +404,39 @@ def _fallback_gradient(prompt: str, output_path: Path):
 
 # --------------- 主入口 ---------------
 def generate_image(visual: dict, output_path: Path):
-    """生成 AI 图片。优先级：Cloubic seedream → Cloubic wan2.6 → Cloubic qwen → 豆包直连 → matplotlib。"""
+    """生成 AI 图片。普通图优先豆包，主视觉优先 Cloubic 高品质模型。"""
     import config as _cfg
     prompt = visual.get("prompt", "professional presentation background")
+    image_route = visual.get("image_route") or visual.get("image_backend") or "standard"
     logger.info("开始生成图片 | prompt: %.100s | output: %s", prompt, output_path)
 
     start = time.time()
     success = False
     method = "matplotlib 回退"
 
-    # 1. Cloubic doubao-seedream-5-0（chat completions 格式）
-    if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
-        success = _call_cloubic_image(prompt, output_path)
+    # 1. 主视觉 / 高品质图：优先 Cloubic 高品质模型（banana pro）
+    if image_route == "high_quality" and not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        success = _call_cloubic_image(prompt, output_path, _cfg.CLOUBIC_HIGH_QUALITY_IMAGE_MODEL)
         if success:
-            method = f"Cloubic ({_cfg.CLOUBIC_IMAGE_MODEL})"
+            method = f"Cloubic high-quality ({_cfg.CLOUBIC_HIGH_QUALITY_IMAGE_MODEL})"
 
-    # 2. 备选: Cloubic wan2.6-t2i（¥0.16/次）
+    # 2. 普通图 or 高品质失败：豆包 Seedream 直连
+    if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
+        success = _call_doubao_image(prompt, output_path)
+        if success:
+            method = f"豆包直连 ({DOUBAO_IMAGE_MODEL})"
+
+    # 3. 备选: Cloubic wan2.6-t2i（¥0.16/次）
     if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
         success = _call_cloubic_image_gen(prompt, output_path, "wan2.6-t2i")
         if success:
             method = "Cloubic (wan2.6-t2i)"
 
-    # 3. 备选: Cloubic qwen-image-edit-plus（¥0.16/次）
+    # 4. 备选: Cloubic qwen-image-edit-plus（¥0.16/次）
     if not success and _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
         success = _call_cloubic_image_gen(prompt, output_path, "qwen-image-edit-plus")
         if success:
             method = "Cloubic (qwen-image-edit-plus)"
-
-    # 4. 豆包 Seedream 直连
-    if not success and DOUBAO_API_KEY and DOUBAO_IMAGE_MODEL:
-        success = _call_doubao_image(prompt, output_path)
-        if success:
-            method = f"豆包直连 ({DOUBAO_IMAGE_MODEL})"
 
     # 5. matplotlib 回退
     if not success:

@@ -22,7 +22,7 @@ if sys.platform == "win32":
 PROJECT_ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from config import OUTPUT_DIR, DEFAULT_THEME, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP, CLOUBIC_REASONING_MODEL_MAP
+from config import OUTPUT_DIR, DEFAULT_THEME, CLOUBIC_ENABLED, CLOUBIC_API_KEY, CLOUBIC_DEFAULT_PROVIDER, CLOUBIC_MODEL_MAP, CLOUBIC_REASONING_MODEL_MAP, DOUBAO_IMAGE_MODEL, CLOUBIC_HIGH_QUALITY_IMAGE_MODEL
 
 _PROVIDER_CHOICES = ["kimi", "gemini", "grok", "minimax", "glm", "qwen", "deepseek", "openai", "perplexity", "claude", "doubao"]
 _THEME_CHOICES = ["business", "academic", "tech", "minimal", "consulting", "creative"]
@@ -67,12 +67,15 @@ def _print_connection_mode():
         else:
             print(f"  连接模式: Cloubic 统一路由", flush=True)
         print(f"  默认 Provider: {provider} (直连)", flush=True)
-        print(f"  图片模型: {_cfg.CLOUBIC_IMAGE_MODEL} (Cloubic)", flush=True)
+        print(f"  高品质图片: Cloubic {CLOUBIC_HIGH_QUALITY_IMAGE_MODEL}", flush=True)
+        print(f"  常规图片: 豆包直连 {DOUBAO_IMAGE_MODEL}", flush=True)
+        print("  图片备选: Cloubic wan2.6-t2i, qwen-image-edit-plus", flush=True)
     else:
         from config import LLM_PROVIDER as _default_provider
         provider = os.environ.get("LLM_PROVIDER") or _default_provider or "kimi"
         print(f"  连接模式: 直连 (Direct)", flush=True)
         print(f"  默认 Provider: {provider}", flush=True)
+        print(f"  常规图片: 豆包直连 {DOUBAO_IMAGE_MODEL}", flush=True)
 
 
 def cmd_generate(args):

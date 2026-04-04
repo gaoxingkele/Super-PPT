@@ -11,6 +11,86 @@ from pathlib import Path
 import src  # noqa: F401
 
 
+HIGH_QUALITY_LAYOUTS = {"cover", "section_break", "image_full", "end"}
+INFOGRAPHIC_LAYOUTS = {"infographic", "timeline", "key_insight", "summary"}
+INFOGRAPHIC_HINT_KEYWORDS = (
+    "timeline", "process", "flow", "comparison", "compare", "matrix", "hierarchy",
+    "network", "cycle", "pyramid", "kpi", "stat", "roadmap", "framework",
+    "流程", "时间线", "对比", "矩阵", "层级", "网络", "循环", "金字塔", "信息图", "架构图", "路线图",
+)
+HIGH_QUALITY_HINT_KEYWORDS = (
+    "cover", "hero", "key visual", "high quality", "premium", "cinematic", "dramatic",
+    "poster", "main visual", "章节过渡", "封面", "主视觉", "第一印象", "冲击力", "海报感", "电影感",
+)
+
+
+def _contains_any(text: str, keywords: tuple) -> bool:
+    text = (text or "").lower()
+    return any(k.lower() in text for k in keywords)
+
+
+def _should_use_infographic(slide: dict, visual: dict) -> bool:
+    visual_type = visual.get("type", "")
+    layout = slide.get("layout", "")
+    if visual_type == "infographics":
+        return True
+    if visual.get("render_mode") == "infographic":
+        return True
+    if visual.get("infographic_type"):
+        return True
+    if layout in INFOGRAPHIC_LAYOUTS:
+        return True
+    if visual_type == "generate-image":
+        if isinstance(visual.get("data"), dict) and visual.get("data"):
+            return True
+        hint_text = " ".join([
+            slide.get("design_intent", ""),
+            visual.get("description", ""),
+            visual.get("prompt", ""),
+            slide.get("title", ""),
+        ])
+        if _contains_any(hint_text, INFOGRAPHIC_HINT_KEYWORDS):
+            return True
+    return False
+
+
+def _should_use_high_quality_image(slide: dict, visual: dict) -> bool:
+    if visual.get("image_route") == "high_quality":
+        return True
+    if visual.get("quality") == "high":
+        return True
+    if visual.get("role") in {"hero", "cover"}:
+        return True
+
+    layout = slide.get("layout", "")
+    if layout in HIGH_QUALITY_LAYOUTS:
+        return True
+
+    hint_text = " ".join([
+        slide.get("design_intent", ""),
+        visual.get("prompt", ""),
+        slide.get("title", ""),
+    ])
+    return _contains_any(hint_text, HIGH_QUALITY_HINT_KEYWORDS)
+
+
+def _route_visual(slide: dict, visual: dict) -> dict:
+    routed = dict(visual or {})
+    visual_type = routed.get("type", "")
+
+    if _should_use_infographic(slide, routed):
+        routed["type"] = "infographics"
+        routed["render_mode"] = "infographic"
+        return routed
+
+    if visual_type == "generate-image":
+        routed["render_mode"] = "image"
+        routed["image_route"] = "high_quality" if _should_use_high_quality_image(slide, routed) else "standard"
+        return routed
+
+    return routed
+
+
 def run_visuals(base: str, output_dir: Path, no_ai_images: bool = False,
                 max_workers: int = 4) -> dict:
     """
@@ -45,6 +125,8 @@ def run_visuals(base: str, output_dir: Path, no_ai_images: bool = False,
             continue
         slide_id = slide.get("id", "unknown")
         visual_type = visual.get("type", "")
+        routed_visual = _route_visual(slide, visual)
+        routed_type = routed_visual.get("type", visual_type)
 
         # matplotlib 图表改为 Step4 原生渲染，此处跳过（但为 data_chart 页生成背景图）
         if visual_type == "matplotlib":
@@ -61,6 +143,7 @@ def run_visuals(base: str, output_dir: Path, no_ai_images: bool = False,
                 )
                 tasks.append({
                     "slide_id": f"{slide_id}_bg",
+                    "slide": slide,
                     "visual": {"type": "generate-image", "prompt": bg_prompt},
                     "color_scheme": color_scheme,
                     "output_path": assets_dir / f"{slide_id}_bg.png",
@@ -68,15 +151,16 @@ def run_visuals(base: str, output_dir: Path, no_ai_images: bool = False,
             continue
 
         # 跳过 AI 图片
-        if no_ai_images and visual_type == "generate-image":
+        if no_ai_images and routed_type == "generate-image":
             continue
 
         if visual_type:
             tasks.append({
                 "slide_id": slide_id,
-                "visual": visual,
+                "slide": slide,
+                "visual": routed_visual,
                 "color_scheme": color_scheme,
-                "output_path": assets_dir / f"{slide_id}_{visual_type.replace('-', '_')}.png",
+                "output_path": assets_dir / f"{slide_id}_{routed_type.replace('-', '_')}.png",
             })
 
     manifest = {}
@@ -111,7 +195,9 @@ def run_visuals(base: str, output_dir: Path, no_ai_images: bool = False,
 
 def _render_visual(task: dict) -> dict:
     """根据 visual.type 分发到对应渲染器。"""
+    slide = task.get("slide", {})
     visual = task["visual"]
+    visual = _route_visual(slide, visual)
     visual_type = visual.get("type", "")
     output_path = task["output_path"]
     color_scheme = task["color_scheme"]

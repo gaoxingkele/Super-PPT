@@ -400,19 +400,48 @@ def _try_gemini_generation(prompt: str, output_path: Path) -> bool:
 # ---------------------------------------------------------------------------
 
 def render_infographic(visual: dict, color_scheme: dict, output_path: Path):
-    """生成信息图并保存为 PNG。优先 Gemini API，失败回退 matplotlib。"""
+    """生成信息图。结构化类型优先 HTML+Playwright，stat_display 走 AI 生图。失败统一 fallback。"""
+    import config as _cfg
     output_path = Path(output_path)
+    infographic_type = visual.get("infographic_type", "process_flow")
 
-    # 1) 尝试 Cloubic 路由
+    # ---- 0) 全部类型优先 HTML+Playwright ----
+    try:
+        from src.visuals.html_infographics import render_html_infographic
+        if render_html_infographic(visual, color_scheme, output_path):
+            return
+        logger.info("[%s] HTML 信息图失败，fallback 到 AI 生图", _ts())
+    except Exception as exc:
+        logger.warning("[%s] HTML 信息图异常: %s，fallback 到 AI 生图", _ts(), exc)
+
+    # ---- AI 生图 fallback 链路 ----
     prompt = _build_gemini_prompt(visual, color_scheme)
-    if _try_cloubic_image_generation(prompt, output_path):
+
+    # 1) 豆包 Seedream 直连
+    from src.visuals.ai_images import _call_doubao_image
+    if _call_doubao_image(prompt, output_path):
+        logger.info("[%s] 信息图通过豆包直连生成成功", _ts())
         return
 
-    # 2) 尝试 Gemini 直连
+    # 2) 备选: Cloubic wan2.6-t2i
+    if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        from src.visuals.ai_images import _call_cloubic_image_gen
+        if _call_cloubic_image_gen(prompt, output_path, "wan2.6-t2i"):
+            logger.info("信息图通过 Cloubic (wan2.6-t2i) 生成成功")
+            return
+
+    # 3) 备选: Cloubic qwen-image-edit-plus
+    if _cfg.CLOUBIC_ENABLED and _cfg.CLOUBIC_API_KEY:
+        from src.visuals.ai_images import _call_cloubic_image_gen
+        if _call_cloubic_image_gen(prompt, output_path, "qwen-image-edit-plus"):
+            logger.info("信息图通过 Cloubic (qwen-image-edit-plus) 生成成功")
+            return
+
+    # 4) Gemini 直连
     if _try_gemini_generation(prompt, output_path):
         return
 
-    # 3) 回退到 matplotlib
+    # 5) 回退到 matplotlib
     logger.info("[%s] 使用 matplotlib 回退渲染信息图", _ts())
     infographic_type = visual.get("infographic_type", "process_flow")
     data = visual.get("data", {})

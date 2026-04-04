@@ -13,7 +13,7 @@ def _env(key: str, default: str = "") -> str:
 
 
 # ============ 默认 Provider ============
-LLM_PROVIDER = _env("LLM_PROVIDER", "grok")
+LLM_PROVIDER = _env("LLM_PROVIDER", "doubao")
 
 # ============ Kimi（月之暗面） ============
 KIMI_API_KEY = _env("KIMI_API_KEY")
@@ -69,13 +69,13 @@ ANTHROPIC_MODEL = _env("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 # ============ 豆包 Doubao（火山引擎） ============
 DOUBAO_API_KEY = _env("DOUBAO_API_KEY") or _env("ARK_API_KEY")
 DOUBAO_BASE_URL = _env("DOUBAO_BASE_URL") or "https://ark.cn-beijing.volces.com/api/v3"
-DOUBAO_MODEL = _env("DOUBAO_MODEL", "doubao-seed-1-6-250615")
+DOUBAO_MODEL = _env("DOUBAO_MODEL", "doubao-seed-2-0-pro-260215")
 DOUBAO_IMAGE_MODEL = _env("DOUBAO_IMAGE_MODEL", "seedream-5-0-260128")
 
 # ============ LLM 候选列表（解析失败时依次尝试） ============
 # 格式: provider1,provider2,...  留空则不重试
 REVIEW_FALLBACK_PROVIDERS = [
-    p.strip() for p in _env("REVIEW_FALLBACK_PROVIDERS", "deepseek,gemini,qwen").split(",") if p.strip()
+    p.strip() for p in _env("REVIEW_FALLBACK_PROVIDERS", "deepseek,qwen,gemini").split(",") if p.strip()
 ]
 
 # ============ PPT 生成语言 ============
@@ -134,6 +134,11 @@ CLOUBIC_ROUTED_PROVIDERS = [
     p.strip() for p in _env("CLOUBIC_ROUTED_PROVIDERS", "").split(",") if p.strip()
 ]
 CLOUBIC_IMAGE_MODEL = _env("CLOUBIC_IMAGE_MODEL") or "gemini-3-pro-image-preview"
+CLOUBIC_HIGH_QUALITY_IMAGE_MODEL = (
+    _env("CLOUBIC_HIGH_QUALITY_IMAGE_MODEL")
+    or _env("CLOUBIC_BANANA_PRO_MODEL")
+    or "gemini-3-pro-image-preview"
+)
 
 # Cloubic 模型映射：provider -> 通过 Cloubic 调用时的模型 ID（2026-03-19 API 实测）
 CLOUBIC_MODEL_MAP = {
