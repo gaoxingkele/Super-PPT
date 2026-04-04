@@ -83,6 +83,39 @@ python main.py visuals report
 python main.py build report --theme business
 ```
 
+### 先确认大纲，再继续生成
+
+如果希望流程更严谨，可以启用确认式生成：
+
+```bash
+python main.py generate report.md --require-outline-confirm
+```
+
+这会让流程在 `Step2` 后暂停，并输出两份中间结果：
+
+- `output/<base>/slide_plan.json`
+- `output/<base>/outline.md`
+
+其中：
+
+- `slide_plan.json` 面向程序执行
+- `outline.md` 面向人工审阅与编辑
+
+你可以直接修改 `outline.md` 中的每页标题、要点、视觉说明、备注、`layout`、`density`、`template_variant`，然后执行：
+
+```bash
+python main.py outline-import <base> output/<base>/outline.md
+```
+
+导回后，重新执行原来的 `generate ... --require-outline-confirm` 命令即可继续后续管线。
+
+### 补充的分步命令
+
+```bash
+python main.py outline-export report
+python main.py outline-import report output/report/outline.md
+```
+
 ## 技术栈
 
 项目当前不是单一“PPT 模板生成器”，而是一条由内容处理、LLM 编排、视觉生成和 PPTX 装配组成的多模块系统。下面按实际代码结构说明。
@@ -165,6 +198,10 @@ python main.py build report --theme business
 - Step2 用两阶段策略生成 PPT 大纲
 - 通过章节权重、节奏规划、数据点估算页数
 - 给每页补足 `layout / bullets / visual / notes / takeaway`
+- 同时补充 `density / template_variant / content_summary`
+- 导出双轨中间层：
+  - `slide_plan.json` 给程序消费
+  - `outline.md` 给人工审阅和编辑
 
 这部分的技术栈重点不在第三方库，而在提示词系统和中间 JSON 结构设计。
 
@@ -232,6 +269,8 @@ python main.py build report --theme business
 - 根据页面布局放置标题、正文、图片、图表、信息图
 - 支持主题模板与参考风格注入
 - 管理字体、颜色、留白、对齐和图文混排
+- 根据 `density / template_variant` 对关键布局做轻量模板化调整
+- 当前已在 `title_content / data_chart / infographic / summary` 等布局中消费这些结构字段
 
 ### 8. 断点续传与安全写入
 
@@ -245,6 +284,7 @@ python main.py build report --theme business
 - 记录每一步完成状态
 - 支持中断后从中间继续
 - 降低长流程生成时的重复计算成本
+- 额外记录 `outline_confirmed`，支持“Step2 后暂停确认，再继续后续管线”
 
 ### 9. 审阅与质量控制
 
@@ -286,6 +326,7 @@ python main.py generate <source>
 - `--theme business|academic|tech|minimal|consulting|creative`
 - `--template ref.pptx`
 - `--slides 15-25`
+- `--require-outline-confirm`
 - `--no-ai-images`
 - `--review`
 - `--review-rounds 5`
@@ -300,6 +341,8 @@ python main.py generate <source>
 python main.py ingest <source>
 python main.py analyze <base>
 python main.py outline <base>
+python main.py outline-export <base>
+python main.py outline-import <base> <outline.md>
 python main.py visuals <base>
 python main.py build <base>
 python main.py review <base>
@@ -364,12 +407,26 @@ Step5  审阅迭代（可选）
 - 固定插入 `cover / agenda / summary / end`
 - 控制 `section_break` 数量和节奏
 - 对每页生成：
-  - `layout`
-  - `title / subtitle`
-  - `bullets`
-  - `visual`
-  - `notes`
-  - `takeaway`
+- `layout`
+- `title / subtitle`
+- `bullets`
+- `visual`
+- `notes`
+- `takeaway`
+- `density`
+- `template_variant`
+- `content_summary`
+
+Step2 完成后会同时输出两份中间结果：
+
+- `slide_plan.json`
+  - 面向程序执行
+  - 给 Step3 / Step4 / Step5 消费
+- `outline.md`
+  - 面向人工审阅
+  - 支持直接编辑后再回填到 `slide_plan.json`
+
+如果启用 `--require-outline-confirm`，流程会在这里暂停，直到执行 `outline-import` 后才继续。
 
 页面设计遵循金字塔原则：
 
@@ -501,6 +558,8 @@ Step5  审阅迭代（可选）
 - 放置标题、正文、图表、信息图、图片
 - 套用主题样式
 - 处理字体、颜色、留白、对齐
+- 消费 `density / template_variant`
+- 对关键布局做轻量的后处理排版优化
 
 底层 PPTX 相关逻辑集中在：
 
