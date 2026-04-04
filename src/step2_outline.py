@@ -12,6 +12,7 @@ import src  # noqa: F401
 from config import OUTLINE_CONTENT_LIMIT, DEFAULT_SLIDE_RANGE
 from config import CHARS_PER_SLIDE, DATA_POINT_BONUS, MAX_PAGES_PER_CHAPTER
 from src.llm_client import chat
+from src.utils.outline_markdown import export_outline_markdown
 from src.prompts.outline import (
     OUTLINE_SYSTEM_PROMPT, build_outline_user_prompt,
     OUTLINE_SKELETON_PROMPT, OUTLINE_DETAIL_PROMPT,
@@ -200,15 +201,18 @@ def run_outline(base: str, output_dir: Path, style_profile: dict = None,
         slide_plan = _run_single_phase(analysis, raw_content, style_profile, slide_range)
 
     slide_plan = _ensure_structural_pages(slide_plan, analysis)
+    slide_plan = _annotate_slide_plan(slide_plan)
 
     plan_path = output_dir / "slide_plan.json"
     plan_path.write_text(json.dumps(slide_plan, ensure_ascii=False, indent=2), encoding="utf-8")
+    outline_md_path = output_dir / "outline.md"
+    export_outline_markdown(slide_plan, outline_md_path)
 
     slide_count = len(slide_plan.get("slides", []))
     visual_count = sum(1 for s in slide_plan.get("slides", []) if s.get("visual"))
     print(f"[Step2] 大纲生成完成: {slide_count} 张幻灯片, {visual_count} 个视觉元素", flush=True)
 
-    return {"slide_plan_path": plan_path, "slide_plan": slide_plan}
+    return {"slide_plan_path": plan_path, "outline_md_path": outline_md_path, "slide_plan": slide_plan}
 
 
 # ============================================================
@@ -772,3 +776,71 @@ def _renumber_slide_ids(slides: list):
     """重新编号 slide id，确保连续且不重复。"""
     for i, s in enumerate(slides):
         s["id"] = f"s{i + 1:02d}"
+
+
+def _annotate_slide_plan(slide_plan: dict) -> dict:
+    for slide in slide_plan.get("slides", []):
+        density = _infer_density(slide)
+        slide["density"] = density
+        slide["template_variant"] = _infer_template_variant(slide, density)
+        slide["content_summary"] = _build_content_summary(slide)
+    slide_plan.setdefault("meta", {})["total_slides"] = len(slide_plan.get("slides", []))
+    return slide_plan
+
+
+def _infer_density(slide: dict) -> str:
+    layout = slide.get("layout", "")
+    bullets = slide.get("bullets", []) or []
+    notes = slide.get("notes", "") or ""
+    visual = slide.get("visual", {}) or {}
+
+    if layout in ("cover", "section_break", "end", "image_full", "quote"):
+        return "light"
+    if layout in ("infographic", "timeline", "key_insight", "summary"):
+        return "visual"
+
+    score = len(bullets)
+    if notes:
+        score += 1
+    if isinstance(visual, dict) and visual.get("data"):
+        score += 1
+
+    if score >= 6:
+        return "dense"
+    if score >= 3:
+        return "standard"
+    return "light"
+
+
+def _infer_template_variant(slide: dict, density: str) -> str:
+    layout = slide.get("layout", "")
+    visual = slide.get("visual", {}) or {}
+
+    if layout in ("cover", "section_break", "image_full", "end"):
+        return "hero"
+    if layout == "data_chart":
+        return "chart_focus"
+    if layout in ("infographic", "timeline", "summary", "key_insight") or visual.get("infographic_type"):
+        return "infographic_focus"
+    if density == "dense":
+        return "dense"
+    if density == "light":
+        return "light"
+    return "standard"
+
+
+def _build_content_summary(slide: dict) -> str:
+    parts = []
+    if slide.get("title"):
+        parts.append(str(slide["title"]))
+    bullets = slide.get("bullets", []) or []
+    if bullets:
+        parts.append(" / ".join(str(item) for item in bullets[:3]))
+    visual = slide.get("visual", {}) or {}
+    if isinstance(visual, dict):
+        if visual.get("description"):
+            parts.append(str(visual["description"])[:80])
+        elif visual.get("prompt"):
+            parts.append(str(visual["prompt"])[:80])
+    summary = " | ".join(part.strip() for part in parts if part)
+    return summary[:240]

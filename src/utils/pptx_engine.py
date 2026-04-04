@@ -222,6 +222,80 @@ def _add_picture_fit(slide, image_path: str, left, top, max_width, max_height):
     )
 
 
+def _get_variant_settings(spec: dict) -> dict:
+    """根据 density / template_variant 返回轻量布局参数。"""
+    density = str(spec.get("density") or "standard").lower()
+    variant = str(spec.get("template_variant") or "").lower()
+
+    settings = {
+        "text_width": 5.8,
+        "image_left": 6.8,
+        "image_width": 6.2,
+        "chart_width": 8.2,
+        "card_left": 8.8,
+        "card_width": 4.2,
+        "bullet_font": 16,
+        "bullet_line_spacing": 26,
+        "bullet_space_after": 8,
+        "summary_font": 16,
+        "summary_line_spacing": 24,
+        "summary_card_height": 3.2,
+        "infographic_image_width": 7.5,
+        "infographic_card_left": 8.0,
+        "infographic_card_width": 4.8,
+    }
+
+    if density == "dense":
+        settings.update({
+            "text_width": 6.3,
+            "image_left": 7.3,
+            "image_width": 5.7,
+            "chart_width": 7.9,
+            "card_left": 8.4,
+            "card_width": 4.6,
+            "bullet_font": 14,
+            "bullet_line_spacing": 22,
+            "bullet_space_after": 5,
+            "summary_font": 14,
+            "summary_line_spacing": 20,
+            "summary_card_height": 3.6,
+            "infographic_image_width": 7.1,
+            "infographic_card_left": 7.7,
+            "infographic_card_width": 5.1,
+        })
+    elif density == "light":
+        settings.update({
+            "text_width": 5.4,
+            "image_left": 6.4,
+            "image_width": 6.6,
+            "bullet_font": 17,
+            "bullet_line_spacing": 28,
+            "bullet_space_after": 10,
+        })
+
+    if variant == "hero":
+        settings.update({
+            "text_width": 5.0,
+            "image_left": 5.9,
+            "image_width": 7.0,
+            "bullet_font": max(settings["bullet_font"], 17),
+        })
+    elif variant == "chart_focus":
+        settings.update({
+            "chart_width": 8.7,
+            "card_left": 9.0,
+            "card_width": 3.9,
+        })
+    elif variant == "infographic_focus":
+        settings.update({
+            "infographic_image_width": 7.9,
+            "infographic_card_left": 8.3,
+            "infographic_card_width": 4.5,
+        })
+
+    return settings
+
+
 def _add_split_image_text(builder, spec: dict, asset_path: Path,
                            image_area_width=None, image_area_height=None):
     """
@@ -757,6 +831,7 @@ def _add_title_content(builder: PPTXBuilder, spec: dict, asset_path: Optional[Pa
 
     bullets = spec.get("bullets", [])
     has_image = asset_path and asset_path.is_file()
+    settings = _get_variant_settings(spec)
 
     # 原生图表渲染（title_content 也可能有 matplotlib）
     visual = spec.get("visual", {})
@@ -797,19 +872,26 @@ def _add_title_content(builder: PPTXBuilder, spec: dict, asset_path: Optional[Pa
         _add_text_block_bullets(slide, bullets, builder)
     elif bullets:
         # ---- 图文页：左文右图 ----
-        left_width = Inches(5.8) if has_image else Inches(6.8)
+        left_width = Inches(settings["text_width"]) if has_image else Inches(6.8)
         txBox = slide.shapes.add_textbox(Inches(0.8), Inches(1.9), left_width, Inches(4.3))
         tf = txBox.text_frame
         tf.word_wrap = True
         for i, bullet in enumerate(bullets):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             _add_rich_text(p, f"\u2022 {bullet}", builder)
-            p.font.size = Pt(16)
-            p.space_after = Pt(8)
-            p.line_spacing = Pt(26)
+            p.font.size = Pt(settings["bullet_font"])
+            p.space_after = Pt(settings["bullet_space_after"])
+            p.line_spacing = Pt(settings["bullet_line_spacing"])
 
     if has_image:
-        _add_picture_fit(slide, str(asset_path), Inches(6.8), Inches(1.6), Inches(6.2), Inches(5.2))
+        _add_picture_fit(
+            slide,
+            str(asset_path),
+            Inches(settings["image_left"]),
+            Inches(1.6),
+            Inches(settings["image_width"]),
+            Inches(5.2),
+        )
 
     _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
@@ -852,6 +934,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
 
     bullets = spec.get("bullets", [])
     has_bullets = bool(bullets)
+    settings = _get_variant_settings(spec)
 
     # 渲染图表：优先原生渲染，回退到图片
     visual = spec.get("visual", {})
@@ -861,7 +944,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
             from src.visuals.pptx_charts import render_native_chart
             if has_bullets:
                 result = render_native_chart(slide, visual, builder.colors,
-                                    Inches(0.3), Inches(1.8), Inches(8.2), Inches(4.8))
+                                    Inches(0.3), Inches(1.8), Inches(settings["chart_width"]), Inches(4.8))
             else:
                 result = render_native_chart(slide, visual, builder.colors,
                                     Inches(1), Inches(1.6), Inches(11), Inches(5))
@@ -871,7 +954,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
 
     if not chart_rendered and asset_path and asset_path.is_file():
         if has_bullets:
-            _add_picture_fit(slide, str(asset_path), Inches(0.3), Inches(1.8), Inches(8.2), Inches(4.8))
+            _add_picture_fit(slide, str(asset_path), Inches(0.3), Inches(1.8), Inches(settings["chart_width"]), Inches(4.8))
         else:
             _add_picture_fit(slide, str(asset_path), Inches(1), Inches(1.6), Inches(11), Inches(5))
 
@@ -879,7 +962,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
         # 右侧要点说明区（带白色背景卡片，确保文字清晰可读）
         card = slide.shapes.add_shape(
             MSO_SHAPE.ROUNDED_RECTANGLE,
-            Inches(8.8), Inches(1.8), Inches(4.2), Inches(4.8),
+            Inches(settings["card_left"]), Inches(1.8), Inches(settings["card_width"]), Inches(4.8),
         )
         card.fill.solid()
         if has_bg:
@@ -891,7 +974,7 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
         card.line.fill.background()
 
         # 要点标题
-        txTitle = slide.shapes.add_textbox(Inches(9.0), Inches(1.9), Inches(3.8), Inches(0.4))
+        txTitle = slide.shapes.add_textbox(Inches(settings["card_left"] + 0.2), Inches(1.9), Inches(settings["card_width"] - 0.4), Inches(0.4))
         tf_t = txTitle.text_frame
         p_t = tf_t.paragraphs[0]
         p_t.text = "关键解读"
@@ -900,15 +983,15 @@ def _add_data_chart(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]
         p_t.font.color.rgb = builder._get_color("primary", "#002060")
 
         # 要点列表（支持 **bold** 标记）
-        txBox = slide.shapes.add_textbox(Inches(9.0), Inches(2.5), Inches(3.8), Inches(3.8))
+        txBox = slide.shapes.add_textbox(Inches(settings["card_left"] + 0.2), Inches(2.5), Inches(settings["card_width"] - 0.4), Inches(3.8))
         tf = txBox.text_frame
         tf.word_wrap = True
         for i, bullet in enumerate(bullets):
             p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
             _add_rich_text(p, f"\u25b8 {bullet}", builder)
-            p.font.size = Pt(14)
-            p.space_after = Pt(6)
-            p.line_spacing = Pt(20)
+            p.font.size = Pt(max(13, settings["bullet_font"] - 1))
+            p.space_after = Pt(max(4, settings["bullet_space_after"] - 2))
+            p.line_spacing = Pt(max(18, settings["bullet_line_spacing"] - 4))
 
     _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
@@ -938,7 +1021,7 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
     # 渲染信息图：使用 AI 生成的图片
     if asset_path and asset_path.is_file():
         if has_bullets:
-            _add_picture_fit(slide, str(asset_path), Inches(0.3), Inches(1.8), Inches(7.5), Inches(5))
+            _add_picture_fit(slide, str(asset_path), Inches(0.3), Inches(1.8), Inches(settings["infographic_image_width"]), Inches(5))
         else:
             _add_picture_fit(slide, str(asset_path), Inches(1), Inches(1.6), Inches(11), Inches(5.2))
 
@@ -954,7 +1037,7 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
             # 卡片背景
             card = slide.shapes.add_shape(
                 MSO_SHAPE.ROUNDED_RECTANGLE,
-                Inches(8.0), y, Inches(4.8), card_h,
+                Inches(settings["infographic_card_left"]), y, Inches(settings["infographic_card_width"]), card_h,
             )
             card.fill.solid()
             card.fill.fore_color.rgb = _BLOCK_COLORS[i % len(_BLOCK_COLORS)]
@@ -962,22 +1045,22 @@ def _add_infographic(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path
             # 左侧色条
             bar = slide.shapes.add_shape(
                 MSO_SHAPE.RECTANGLE,
-                Inches(8.0), y, Inches(0.06), card_h,
+                Inches(settings["infographic_card_left"]), y, Inches(0.06), card_h,
             )
             bar.fill.solid()
             bar.fill.fore_color.rgb = builder._get_color("accent", "#C00000")
             bar.line.fill.background()
             # 文字（支持 **bold** 标记）
             txBox = slide.shapes.add_textbox(
-                Inches(8.2), y + Inches(0.08),
-                Inches(4.5), card_h - Inches(0.16),
+                Inches(settings["infographic_card_left"] + 0.2), y + Inches(0.08),
+                Inches(settings["infographic_card_width"] - 0.3), card_h - Inches(0.16),
             )
             tf = txBox.text_frame
             tf.word_wrap = True
             p = tf.paragraphs[0]
             _add_rich_text(p, str(bullet), builder)
-            p.font.size = Pt(14)
-            p.line_spacing = Pt(20)
+            p.font.size = Pt(max(13, settings["bullet_font"] - 1))
+            p.line_spacing = Pt(max(18, settings["bullet_line_spacing"] - 4))
 
     _add_takeaway(slide, spec.get("takeaway", ""), builder)
 
@@ -1335,24 +1418,25 @@ def _add_summary(builder: PPTXBuilder, spec: dict, asset_path: Optional[Path]):
     _add_bottom_bar(slide, builder)
 
     # 内容卡片
+    settings = _get_variant_settings(spec)
     content_card = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
-        Inches(0.5), Inches(1.6), Inches(12), Inches(3.2),
+        Inches(0.5), Inches(1.6), Inches(12), Inches(settings["summary_card_height"]),
     )
     content_card.fill.solid()
     content_card.fill.fore_color.rgb = RGBColor(0xF5, 0xF7, 0xFA)
     content_card.line.fill.background()
 
     bullets = spec.get("bullets", [])
-    txBox = slide.shapes.add_textbox(Inches(1.0), Inches(1.8), Inches(11), Inches(3.0))
+    txBox = slide.shapes.add_textbox(Inches(1.0), Inches(1.8), Inches(11), Inches(settings["summary_card_height"] - 0.2))
     tf = txBox.text_frame
     tf.word_wrap = True
     for i, bullet in enumerate(bullets):
         p = tf.paragraphs[0] if i == 0 else tf.add_paragraph()
         _add_rich_text(p, f"\u2713 {bullet}", builder)
-        p.font.size = Pt(16)
-        p.space_after = Pt(6)
-        p.line_spacing = Pt(24)
+        p.font.size = Pt(settings["summary_font"])
+        p.space_after = Pt(max(4, settings["bullet_space_after"] - 2))
+        p.line_spacing = Pt(settings["summary_line_spacing"])
 
     # 底部 KPI 信息图（仅此一处使用图片，不做全页背景叠加）
     if asset_path and asset_path.is_file():

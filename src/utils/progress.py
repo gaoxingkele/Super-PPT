@@ -39,6 +39,16 @@ def save_progress(base: str, output_dir: Path, step: str, extra: dict = None):
     progress_path.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def clear_progress_step(base: str, output_dir: Path, step: str):
+    """清除某个已完成步骤，用于重新生成后使后续确认失效。"""
+    progress = load_progress(base, output_dir)
+    if step in progress.get("completed_steps", []):
+        progress["completed_steps"] = [s for s in progress["completed_steps"] if s != step]
+    progress.get("timestamps", {}).pop(step, None)
+    progress_path = Path(output_dir) / f"{base}_progress.json"
+    progress_path.write_text(json.dumps(progress, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
 def should_skip_step(progress: dict, step: str) -> bool:
     """判断是否跳过某步骤（已完成且配置哈希匹配）。"""
     if step not in progress.get("completed_steps", []):

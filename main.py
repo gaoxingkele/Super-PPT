@@ -78,6 +78,14 @@ def _print_connection_mode():
         print(f"  常规图片: 豆包直连 {DOUBAO_IMAGE_MODEL}", flush=True)
 
 
+def _pause_for_outline_confirmation(base: str, output_dir: Path):
+    outline_path = output_dir / "outline.md"
+    print("\n[确认等待] 已按要求在 Step2 停止。", flush=True)
+    print(f"  请检查并确认大纲: {outline_path}", flush=True)
+    print(f"  如有修改，执行: python main.py outline-import {base} \"{outline_path}\"", flush=True)
+    print("  确认后，重新执行原 generate 命令即可继续后续管线。", flush=True)
+
+
 def cmd_generate(args):
     """一键全管线：输入 → Step0~Step4 → .pptx"""
     _apply_provider(getattr(args, "provider", None))
@@ -88,6 +96,7 @@ def cmd_generate(args):
     theme = getattr(args, "theme", None) or DEFAULT_THEME
     no_ai = getattr(args, "no_ai_images", False)
     no_resume = getattr(args, "no_resume", False)
+    require_outline_confirm = getattr(args, "require_outline_confirm", False)
     slide_range = _parse_slide_range(getattr(args, "slides", None))
     template_path = Path(args.template) if getattr(args, "template", None) else None
 
@@ -96,7 +105,7 @@ def cmd_generate(args):
     print(f"  主题: {theme}", flush=True)
     _print_connection_mode()
 
-    from src.utils.progress import load_progress, save_progress, should_skip_step
+    from src.utils.progress import load_progress, save_progress, should_skip_step, clear_progress_step
 
     # Step0: 内容获取
     _log_step("Step0 内容获取")
@@ -141,6 +150,12 @@ def cmd_generate(args):
         from src.step2_outline import run_outline
         run_outline(base, output_dir, style_profile, slide_range)
         save_progress(base, output_dir, "step2")
+        clear_progress_step(base, output_dir, "outline_confirmed")
+        progress = load_progress(base, output_dir)
+
+    if require_outline_confirm and not should_skip_step(progress, "outline_confirmed"):
+        _pause_for_outline_confirmation(base, output_dir)
+        return
 
     # Step3: 视觉资产
     if should_skip_step(progress, "step3"):
@@ -225,6 +240,35 @@ def cmd_build(args):
     run_build(args.base, output_dir, getattr(args, "theme", None))
 
 
+def cmd_outline_export(args):
+    """导出 slide_plan.json 为 outline.md。"""
+    import json
+    from src.utils.outline_markdown import export_outline_markdown
+
+    output_dir = OUTPUT_DIR / args.base
+    slide_plan = json.loads((output_dir / "slide_plan.json").read_text(encoding="utf-8"))
+    target = Path(args.output) if getattr(args, "output", None) else (output_dir / "outline.md")
+    export_outline_markdown(slide_plan, target)
+    print(f"已导出: {target}")
+
+
+def cmd_outline_import(args):
+    """从 outline.md 回填 slide_plan.json。"""
+    import json
+    from src.utils.outline_markdown import import_outline_markdown, export_outline_markdown
+    from src.utils.progress import save_progress
+
+    output_dir = OUTPUT_DIR / args.base
+    slide_plan_path = output_dir / "slide_plan.json"
+    slide_plan = json.loads(slide_plan_path.read_text(encoding="utf-8"))
+    source = Path(args.source)
+    updated = import_outline_markdown(source.read_text(encoding="utf-8"), slide_plan)
+    slide_plan_path.write_text(json.dumps(updated, ensure_ascii=False, indent=2), encoding="utf-8")
+    export_outline_markdown(updated, output_dir / "outline.md")
+    save_progress(args.base, output_dir, "outline_confirmed")
+    print(f"已回填: {slide_plan_path}")
+
+
 def cmd_review(args):
     """仅 Step5: 三角色迭代审阅。"""
     _apply_provider(getattr(args, "provider", None))
@@ -288,6 +332,7 @@ def cmd_retry_asset(args):
     assets_dir = output_dir / "assets"
     task = {
         "slide_id": slide_id,
+        "slide": target_slide,
         "visual": visual,
         "color_scheme": slide_plan.get("meta", {}).get("color_scheme", {}),
         "output_path": assets_dir / f"{slide_id}_{visual.get('type', 'unknown').replace('-', '_')}.png",
@@ -352,6 +397,7 @@ def main():
     pg.add_argument("--slides", default=None, help="幻灯片数量范围（如 15-25）")
     pg.add_argument("--no-ai-images", action="store_true", help="跳过 AI 图片生成（快速预览）")
     pg.add_argument("--no-resume", action="store_true", help="禁用断点续传，从头执行")
+    pg.add_argument("--require-outline-confirm", action="store_true", help="在 Step2 后暂停，确认大纲后再继续")
     pg.add_argument("--enrich", action="store_true", help="启用 Step1.5 联网数据补充（补充最新数据/事件）")
     pg.add_argument("--cloubic", action="store_true", help="强制使用 Cloubic 统一路由（需配置 .env.cloubic）")
     pg.add_argument("--direct", action="store_true", help="强制使用直连模式（忽略 .env.cloubic）")
@@ -387,6 +433,18 @@ def main():
     p2.add_argument("--slides", default=None, help="幻灯片数量范围")
     _add_provider_arg(p2)
     p2.set_defaults(func=cmd_outline)
+
+    p2x = sub.add_parser("outline-export", help="导出可编辑的 outline.md")
+    subparsers_map["outline-export"] = p2x
+    p2x.add_argument("base", help="项目名称")
+    p2x.add_argument("-o", "--output", default=None, help="导出 Markdown 路径")
+    p2x.set_defaults(func=cmd_outline_export)
+
+    p2i = sub.add_parser("outline-import", help="从 outline.md 回填 slide_plan.json")
+    subparsers_map["outline-import"] = p2i
+    p2i.add_argument("base", help="项目名称")
+    p2i.add_argument("source", help="outline.md 路径")
+    p2i.set_defaults(func=cmd_outline_import)
 
     p3 = sub.add_parser("visuals", help="Step3: 视觉资产生成")
     subparsers_map["visuals"] = p3
